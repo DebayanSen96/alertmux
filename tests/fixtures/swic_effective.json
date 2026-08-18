@@ -1,0 +1,58 @@
+{
+  "type": "FeatureCollection",
+  "totalFeatures": 3,
+  "numberMatched": 3,
+  "numberReturned": 3,
+  "timeStamp": "2026-08-17T23:39:03.506Z",
+  "crs": null,
+  "features": [
+    {
+      "type": "Feature",
+      "id": "effective_warning_view.fid--7463f54d_1a0121513f5_-1f9d",
+      "geometry": null,
+      "properties": {
+        "capurl": "ng-nimet-en/2026/08/17/14/50/16-e28162fa92b40b8a59c979ba00b562e9.xml",
+        "sent": "2026-08-17T06:50:16Z",
+        "event": "THUNDERSTORMS",
+        "s": 3,
+        "u": 3,
+        "c": 4,
+        "mem": "075",
+        "areadesc": "Some states in Nigeria will be affected.",
+        "rlink": ""
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "effective_warning_view.fid--7463f54d_1a0121513f5_-1f9c",
+      "geometry": null,
+      "properties": {
+        "capurl": "in-ndma-xx/2026/08/17/23/45/41-2c9d21f8abadfa2fd628332c73e1375c.xml",
+        "sent": "2026-08-17T15:45:41Z",
+        "event": "Heavy Rain",
+        "s": 3,
+        "u": 3,
+        "c": 3,
+        "mem": "066",
+        "areadesc": "Haridwar, Pauri, Nainital, US Nagar",
+        "rlink": ""
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "effective_warning_view.fid--7463f54d_1a0121513f5_-1f81",
+      "geometry": null,
+      "properties": {
+        "capurl": "in-ndma-xx/2026/08/17/10/02/34-3f642de15fd12eede0aa319ba4c23604.xml",
+        "sent": "2026-08-17T02:02:34Z",
+        "event": "Extremely Heavy Rain",
+        "s": 4,
+        "u": 4,
+        "c": 3,
+        "mem": "066",
+        "areadesc": "Bankura, Paschim Bardhaman, Puruliya districts of West Bengal",
+        "rlink": ""
+      }
+    }
+  ]
+}
