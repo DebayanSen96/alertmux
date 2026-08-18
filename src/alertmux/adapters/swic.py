@@ -390,6 +390,15 @@ class SwicAdapter:
             "outputFormat": "json",
             "maxFeatures": max_features,
             "startIndex": start_index,
+            # WFS 1.1.0 does not mandate a feature order, so startIndex is
+            # only well-defined paired with a sort key -- verified live,
+            # 18 Aug 2026: this GeoServer answers ANY request carrying
+            # startIndex with a bare "Err" body (HTTP 200, not even a
+            # proper WFS exception report) unless sortBy is also present.
+            # capurl is unique and stable (D2), so sorting by it costs
+            # nothing and gives a deterministic page order for free -- no
+            # risk of the same record shifting between two pages.
+            "sortBy": "capurl",
         }
         if mem:
             params["cql_filter"] = f"mem='{mem}'"

@@ -144,6 +144,28 @@ number of distinct valid alerts assembled across all pages, not one page's
 raw `numberReturned` — the latter stopped being a single number once there
 could be more than one page.
 
+**`sortBy` is mandatory, not decoration — found live, not in any unit
+test.** WFS 1.1.0 does not mandate a feature order, so `startIndex` is only
+well-defined paired with a sort key; this GeoServer enforces that stricter
+than a graceful fallback would suggest. Verified 18 Aug 2026: a request
+carrying `startIndex` with no `sortBy` gets back HTTP 200 with the literal
+body `Err\nErr\nErr\nErr\nErr\nErr\n` — not JSON, not a WFS
+`ExceptionReport`, nothing `_require_feature_collection` was written to
+catch as a *envelope* failure (it does raise, correctly, just not for the
+reason anyone would guess from the message). Every mocked unit test for
+this feature passed regardless, because respx returns whatever payload the
+test wrote; only the live smoke suite could have caught this, and initially
+didn't either, because the first live run after shipping pagination hit
+this exact failure. `build_params` now always sends `sortBy=capurl` —
+`capurl` is already the identity field (D2), unique and stable, so sorting
+by it costs nothing and gives deterministic page boundaries as a side
+effect (confirmed live: two consecutive pages with `sortBy=capurl` returned
+disjoint, alphabetically contiguous slices with zero overlap). **The
+lesson, restated from the "things we got wrong" section below because it
+bit this exact feature during its own development:** a fixture proves the
+parsing logic works on the shape you imagined the server would return: it
+cannot prove the server accepts the request you imagined it would accept.
+
 **What was true in v0.1, kept for the record.** v0.1 only *labelled*
 truncation: it requested a single page capped at `maxFeatures`, and if the
 server had more warnings in force than it returned, the response still set

@@ -46,13 +46,23 @@ Notes that cost time to learn:
   re-notified.
 - **Always send `maxFeatures`.** An unfiltered query on the raw layer exceeded 24MB
   and timed out at 60s.
-- **`startIndex` pagination works.** GeoServer WFS 1.1.0 honours `startIndex` on
-  this endpoint; `SwicAdapter.fetch()` (18 Aug 2026, issue #3) loops on it,
-  requesting a further page whenever the previous one came back filled to
-  `maxFeatures` or `numberMatched` says more remain, up to a `max_pages` ceiling.
-  Before this, v0.1 only labelled truncation at a single `maxFeatures=3000`
-  cap — safe while live counts sat around 2,100–2,300, but not once a severe
-  day pushes past it. See DECISIONS.md D4.
+- **`startIndex` pagination works, but only paired with `sortBy`.** GeoServer
+  WFS 1.1.0 honours `startIndex` on this endpoint; `SwicAdapter.fetch()`
+  (18 Aug 2026, issue #3) loops on it, requesting a further page whenever
+  the previous one came back filled to `maxFeatures` or `numberMatched` says
+  more remain, up to a `max_pages` ceiling. Before this, v0.1 only labelled
+  truncation at a single `maxFeatures=3000` cap — safe while live counts sat
+  around 2,100–2,300, but not once a severe day pushes past it. See
+  DECISIONS.md D4.
+  **`startIndex` alone is not enough — verified live, 18 Aug 2026: sending
+  `startIndex` without `sortBy` gets HTTP 200 back with the literal body
+  `Err\nErr\nErr\nErr\nErr\nErr\n`**, not JSON and not a proper WFS
+  `ExceptionReport`. WFS 1.1.0 does not mandate a feature order, and this
+  server enforces that a sort key must accompany paging rather than falling
+  back to some default order. `sortBy=capurl` fixes it — confirmed live,
+  two consecutive pages returned disjoint, alphabetically contiguous slices
+  with zero overlap — and costs nothing since `capurl` is already the
+  unique, stable identity field (D2). Always send both together.
 - A second layer, `local_postgis:postgis_geojsons` on `/f/wfs`, carries geometry and
   is filtered by `row_type` (`POLYGON` held 4,732 features; `POINT` 96; `LINE` and
   `CIRCLE` were empty). `effective_warning_view` returns `geometry: null`.

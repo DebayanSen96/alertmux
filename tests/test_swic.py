@@ -33,6 +33,17 @@ def test_params_always_send_maxfeatures():
     assert SwicAdapter().build_params(mem=None, max_features=500)["maxFeatures"] == 500
 
 
+def test_params_always_send_sort_by_for_deterministic_paging():
+    """Verified live, 18 Aug 2026: this GeoServer answers ANY request
+    carrying startIndex with a bare "Err" body (HTTP 200, not a WFS
+    exception report) unless sortBy is also present -- WFS 1.1.0 does
+    not mandate a feature order, so startIndex is only well-defined
+    paired with a sort key. Without this, real pagination breaks
+    completely despite every mocked unit test passing."""
+    params = SwicAdapter().build_params(mem=None, max_features=500)
+    assert params["sortBy"] == "capurl"
+
+
 def test_params_filter_by_authority_when_mem_given():
     params = SwicAdapter().build_params(mem="075", max_features=3000)
     assert params["cql_filter"] == "mem='075'"
