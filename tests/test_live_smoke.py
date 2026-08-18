@@ -5,6 +5,7 @@ Excluded from the default run so CI never depends on third-party uptime.
 
 import pytest
 
+from alertmux.adapters.nws import NwsAdapter
 from alertmux.adapters.swic import SwicAdapter
 from alertmux.adapters.usgs import UsgsAdapter
 
@@ -34,3 +35,14 @@ def test_swic_live_can_filter_to_nigeria():
     assert result.ok is True, result.error
     for alert in result.alerts:
         assert alert.provenance.authority == "ng-nimet"
+
+
+def test_nws_live_returns_alerts_and_never_relays_test_status():
+    """The live feed carries a persistent KEEPALIVE test record - it
+    must never survive parse() into the returned alerts."""
+    result = NwsAdapter().fetch()
+    assert result.ok is True, result.error
+    assert len(result.alerts) > 0
+    for alert in result.alerts:
+        assert alert.provenance.authority == "us-noaa"
+        assert alert.event != "Test Message"

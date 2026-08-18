@@ -1,0 +1,474 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.caf99f41e8e25784bfbc48eedb293d4791144aa6.001.1",
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -98.29,
+              41.36
+            ],
+            [
+              -98.19,
+              41.33
+            ],
+            [
+              -98.04,
+              41.21
+            ],
+            [
+              -98.17,
+              41.19
+            ],
+            [
+              -98.57,
+              41.39
+            ],
+            [
+              -98.38,
+              41.39
+            ],
+            [
+              -98.29,
+              41.36
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "@id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.caf99f41e8e25784bfbc48eedb293d4791144aa6.001.1",
+        "@type": "wx:Alert",
+        "id": "urn:oid:2.49.0.1.840.0.caf99f41e8e25784bfbc48eedb293d4791144aa6.001.1",
+        "areaDesc": "Howard, NE; Merrick, NE; Nance, NE",
+        "geocode": {
+          "SAME": [
+            "031093",
+            "031121",
+            "031125"
+          ],
+          "UGC": [
+            "NEC093",
+            "NEC121",
+            "NEC125"
+          ]
+        },
+        "affectedZones": [
+          "https://api.weather.gov/zones/county/NEC093",
+          "https://api.weather.gov/zones/county/NEC121",
+          "https://api.weather.gov/zones/county/NEC125"
+        ],
+        "references": [],
+        "sent": "2026-08-18T05:19:00-05:00",
+        "effective": "2026-08-18T05:19:00-05:00",
+        "onset": "2026-08-18T05:19:00-05:00",
+        "expires": "2026-08-18T08:15:00-05:00",
+        "ends": "2026-08-18T08:15:00-05:00",
+        "status": "Actual",
+        "messageType": "Alert",
+        "category": "Met",
+        "severity": "Minor",
+        "certainty": "Likely",
+        "urgency": "Expected",
+        "event": "Flood Advisory",
+        "sender": "w-nws.webmaster@noaa.gov",
+        "senderName": "NWS Hastings NE",
+        "headline": "Flood Advisory issued August 18 at 5:19AM CDT until August 18 at 8:15AM CDT by NWS Hastings NE",
+        "description": "* WHAT...Minor flooding caused by excessive rainfall is expected.\n\n* WHERE...Northeastern Howard County in central Nebraska...\nWest Central Merrick County in central Nebraska...\nSouthwestern Nance County in central Nebraska...\n\n* WHEN...Until 815 AM CDT.\n\n* IMPACTS...Minor flooding in low-lying and poor drainage areas.\n\n* ADDITIONAL DETAILS...\n- At 518 AM CDT, Doppler radar indicated heavy rain due to\nthunderstorms. Minor flooding is ongoing or expected to begin\nshortly in the advisory area.\n- Some locations that will experience flooding include...\nCushing.\n- http://www.weather.gov/safety/flood",
+        "instruction": "Turn around, don't drown when encountering flooded roads. Most flood\ndeaths occur in vehicles.",
+        "response": "Avoid",
+        "note": null,
+        "parameters": {
+          "AWIPSidentifier": [
+            "FLSGID"
+          ],
+          "WMOidentifier": [
+            "WGUS83 KGID 181019"
+          ],
+          "NWSheadline": [
+            "FLOOD ADVISORY IN EFFECT UNTIL 815 AM CDT THIS MORNING"
+          ],
+          "BLOCKCHANNEL": [
+            "EAS",
+            "NWEM",
+            "CMAS"
+          ],
+          "VTEC": [
+            "/O.NEW.KGID.FA.Y.0041.260818T1019Z-260818T1315Z/"
+          ],
+          "eventEndingTime": [
+            "2026-08-18T08:15:00-05:00"
+          ]
+        },
+        "scope": "Public",
+        "code": "IPAWSv1.0",
+        "language": "en-US",
+        "web": "http://www.weather.gov",
+        "eventCode": {
+          "SAME": [
+            "NWS"
+          ],
+          "NationalWeatherService": [
+            "FAY"
+          ]
+        }
+      }
+    },
+    {
+      "id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.5672f4c2c7627d8d33566edea5354cf15666d9b9.001.2",
+      "type": "Feature",
+      "geometry": null,
+      "properties": {
+        "@id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.5672f4c2c7627d8d33566edea5354cf15666d9b9.001.2",
+        "@type": "wx:Alert",
+        "id": "urn:oid:2.49.0.1.840.0.5672f4c2c7627d8d33566edea5354cf15666d9b9.001.2",
+        "areaDesc": "Icy Cape to Cape Suckling out to 15 NM",
+        "geocode": {
+          "SAME": [
+            "058652"
+          ],
+          "UGC": [
+            "PKZ652"
+          ]
+        },
+        "affectedZones": [
+          "https://api.weather.gov/zones/forecast/PKZ652"
+        ],
+        "references": [],
+        "sent": "2026-08-18T02:54:00-08:00",
+        "effective": "2026-08-18T02:54:00-08:00",
+        "onset": "2026-08-19T19:00:00-08:00",
+        "expires": "2026-08-18T11:00:00-08:00",
+        "ends": "2026-08-20T10:00:00-08:00",
+        "status": "Actual",
+        "messageType": "Alert",
+        "category": "Met",
+        "severity": "Minor",
+        "certainty": "Likely",
+        "urgency": "Expected",
+        "event": "Small Craft Advisory",
+        "sender": "w-nws.webmaster@noaa.gov",
+        "senderName": "NWS Juneau AK",
+        "headline": "Small Craft Advisory issued August 18 at 2:54AM AKDT until August 20 at 10:00AM AKDT by NWS Juneau AK",
+        "description": "* WHAT...For the first Small Craft Advisory, seas 6 to 8 ft. For\nthe second Small Craft Advisory, east winds 15 to 25 kt and\nseas 6 to 8 ft expected.\n\n* WHERE...Icy Cape to Cape Suckling out to 15 NM.\n\n* WHEN...For the first Small Craft Advisory, until 7 AM AKDT\nthis morning. For the second Small Craft Advisory, from 7 PM\nWednesday to 10 AM AKDT Thursday.\n\n* IMPACTS...Conditions will be hazardous to small craft.",
+        "instruction": "Inexperienced mariners, especially those operating smaller\nvessels, should avoid navigating in hazardous conditions.",
+        "response": "Avoid",
+        "note": null,
+        "parameters": {
+          "AWIPSidentifier": [
+            "MWWAJK"
+          ],
+          "WMOidentifier": [
+            "WHAK77 PAJK 181054"
+          ],
+          "NWSheadline": [
+            "SMALL CRAFT ADVISORY REMAINS IN EFFECT UNTIL 7 AM AKDT THIS MORNING... ...SMALL CRAFT ADVISORY IN EFFECT FROM 7 PM WEDNESDAY TO 10 AM AKDT THURSDAY"
+          ],
+          "BLOCKCHANNEL": [
+            "EAS",
+            "NWEM",
+            "CMAS"
+          ],
+          "VTEC": [
+            "/O.NEW.PAJK.SC.Y.0267.260820T0300Z-260820T1800Z/"
+          ],
+          "eventEndingTime": [
+            "2026-08-20T10:00:00-08:00"
+          ]
+        },
+        "scope": "Public",
+        "code": "IPAWSv1.0",
+        "language": "en-US",
+        "web": "http://www.weather.gov",
+        "eventCode": {
+          "SAME": [
+            "NWS"
+          ],
+          "NationalWeatherService": [
+            "SCY"
+          ]
+        }
+      }
+    },
+    {
+      "id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0-KEEPALIVE-11365",
+      "type": "Feature",
+      "geometry": null,
+      "properties": {
+        "@id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0-KEEPALIVE-11365",
+        "@type": "wx:Alert",
+        "id": "urn:oid:2.49.0.1.840.0-KEEPALIVE-11365",
+        "areaDesc": "Montgomery",
+        "geocode": {
+          "SAME": [
+            "024031"
+          ],
+          "UGC": [
+            "MDC031"
+          ]
+        },
+        "affectedZones": [
+          "https://api.weather.gov/zones/county/MDC031"
+        ],
+        "references": [],
+        "sent": "2026-08-18T11:07:16+00:00",
+        "effective": "2026-08-18T11:07:16+00:00",
+        "onset": null,
+        "expires": "2026-08-18T11:17:16+00:00",
+        "ends": null,
+        "status": "Test",
+        "messageType": "Alert",
+        "category": "Met",
+        "severity": "Unknown",
+        "certainty": "Unknown",
+        "urgency": "Unknown",
+        "event": "Test Message",
+        "sender": "w-nws.webmaster@noaa.gov",
+        "senderName": "NWS",
+        "headline": null,
+        "description": "Monitoring message only. Please disregard.",
+        "instruction": "Monitoring message only. Please disregard.",
+        "response": "None",
+        "note": "This is only a test for monitoring of vital dissemination systems.",
+        "parameters": {
+          "AWIPSidentifier": [
+            "KEPWBC"
+          ],
+          "WMOidentifier": [
+            "NZUS91 KWBC 181107"
+          ],
+          "BLOCKCHANNEL": [
+            "CMAS",
+            "EAS",
+            "NWEM"
+          ]
+        },
+        "scope": "Public",
+        "code": "IPAWSv1.0",
+        "language": "en-US",
+        "web": "http://www.weather.gov",
+        "eventCode": {
+          "SAME": [
+            "NWS"
+          ],
+          "NationalWeatherService": [
+            "TST"
+          ]
+        }
+      }
+    },
+    {
+      "id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.29db7d75e717a3fee3b2dbc6474566b8c1f30705.001.1",
+      "type": "Feature",
+      "geometry": null,
+      "properties": {
+        "@id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.29db7d75e717a3fee3b2dbc6474566b8c1f30705.001.1",
+        "@type": "wx:Alert",
+        "id": "urn:oid:2.49.0.1.840.0.29db7d75e717a3fee3b2dbc6474566b8c1f30705.001.1",
+        "areaDesc": "Broomfield, CO; Adams, CO; Larimer, CO; Jefferson, CO; Denver, CO; Boulder, CO; Weld, CO; Arapahoe, CO; Douglas, CO",
+        "geocode": {
+          "SAME": [
+            "008014",
+            "008001",
+            "008069",
+            "008059",
+            "008031",
+            "008013",
+            "008123",
+            "008005",
+            "008035"
+          ],
+          "UGC": [
+            "COC014",
+            "COC001",
+            "COC069",
+            "COC059",
+            "COC031",
+            "COC013",
+            "COC123",
+            "COC005",
+            "COC035"
+          ]
+        },
+        "affectedZones": [
+          "https://api.weather.gov/zones/county/COC014",
+          "https://api.weather.gov/zones/county/COC001",
+          "https://api.weather.gov/zones/county/COC069",
+          "https://api.weather.gov/zones/county/COC059",
+          "https://api.weather.gov/zones/county/COC031",
+          "https://api.weather.gov/zones/county/COC013",
+          "https://api.weather.gov/zones/county/COC123",
+          "https://api.weather.gov/zones/county/COC005",
+          "https://api.weather.gov/zones/county/COC035"
+        ],
+        "references": [],
+        "sent": "2026-08-17T16:11:00-06:00",
+        "effective": "2026-08-17T16:10:00-06:00",
+        "onset": "2026-08-17T16:10:00-06:00",
+        "expires": "2026-08-18T16:00:00-06:00",
+        "ends": null,
+        "status": "Actual",
+        "messageType": "Alert",
+        "category": "Met",
+        "severity": "Unknown",
+        "certainty": "Unknown",
+        "urgency": "Unknown",
+        "event": "Air Quality Alert",
+        "sender": "w-nws.webmaster@noaa.gov",
+        "senderName": "NWS Denver CO",
+        "headline": "Air Quality Alert issued August 17 at 4:10PM MDT by NWS Denver CO",
+        "description": "The Colorado Department of Public Health and Environment has\nissued the following...\n\nWHAT...Ozone Action Day Alert.\n\nWHERE...Douglas, Jefferson, Denver, western Arapahoe, western\nAdams, Broomfield, Boulder, Larimer, and Weld Counties\n\nWHEN...400 PM Monday August 17 to 400 PM Tuesday August 18\n\nIMPACTS...Ozone Action Day Alert is now in effect for the Front\nRange Urban Corridor.  A decreasing threat for showers and\nthunderstorms along with very warm temperatures will result in\nozone concentrations reaching the Unhealthy for Sensitive Groups\ncategory both Monday and Tuesday during the afternoon and evening\nhours. The best chance for those higher ozone levels will be in\nand near the Denver metro area, including the local foothills.\nFor Colorado air quality conditions, forecasts, and advisories,\nvisit: https://www.colorado.gov/airquality/colorado_summary.aspx\nIf possible, please help us reduce ozone pollution by limiting\ndriving gas and diesel-powered vehicles until at least 4 p.m.\nTuesday, August 18, 2026. Colorado is also addressing ozone\npollution through state policies. For more information about\nhealth impacts and how ozone pollution forms in Colorado, visit:\nhttps://cdphe.colorado.gov/ozone- pollution-and-your-health\n\nHEALTH INFORMATION...Increasing likelihood of respiratory symptoms\nand breathing discomfort in active children and adults and people\nwith lung disease, such as asthma. Active children and adults, and\npeople with lung disease, such as asthma, should reduce prolonged\nor heavy outdoor exertion.",
+        "instruction": null,
+        "response": "Monitor",
+        "note": "Non-Weather Emergency Message. Not sent to IPAWS.",
+        "parameters": {
+          "AWIPSidentifier": [
+            "AQABOU"
+          ],
+          "WMOidentifier": [
+            "AEUS75 KBOU 172211"
+          ],
+          "NWSheadline": [
+            "OZONE ACTION DAY ALERT FROM 400 PM MONDAY UNTIL 400 PM TUESDAY"
+          ],
+          "BLOCKCHANNEL": [
+            "EAS",
+            "NWEM",
+            "CMAS"
+          ]
+        },
+        "scope": "Public",
+        "code": "IPAWSv1.0",
+        "language": "en-US",
+        "web": "http://www.weather.gov",
+        "eventCode": {
+          "SAME": [
+            "NWS"
+          ],
+          "NationalWeatherService": [
+            "AQA"
+          ]
+        }
+      }
+    },
+    {
+      "id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.4841137d050ff00a22cfa56716d145d72d28e393.001.1",
+      "type": "Feature",
+      "geometry": null,
+      "properties": {
+        "@id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.4841137d050ff00a22cfa56716d145d72d28e393.001.1",
+        "@type": "wx:Alert",
+        "id": "urn:oid:2.49.0.1.840.0.4841137d050ff00a22cfa56716d145d72d28e393.001.1",
+        "areaDesc": "Beaver; Ochiltree; Lipscomb; Hutchinson; Roberts; Hemphill; Gray; Wheeler; Armstrong; Donley; Collingsworth; Palo Duro Canyon",
+        "geocode": {
+          "SAME": [
+            "040007",
+            "048357",
+            "048295",
+            "048233",
+            "048393",
+            "048211",
+            "048179",
+            "048483",
+            "048011",
+            "048129",
+            "048087",
+            "048381"
+          ],
+          "UGC": [
+            "OKZ003",
+            "TXZ004",
+            "TXZ005",
+            "TXZ008",
+            "TXZ009",
+            "TXZ010",
+            "TXZ014",
+            "TXZ015",
+            "TXZ018",
+            "TXZ019",
+            "TXZ020",
+            "TXZ317"
+          ]
+        },
+        "affectedZones": [
+          "https://api.weather.gov/zones/forecast/OKZ003",
+          "https://api.weather.gov/zones/forecast/TXZ004",
+          "https://api.weather.gov/zones/forecast/TXZ005",
+          "https://api.weather.gov/zones/forecast/TXZ008",
+          "https://api.weather.gov/zones/forecast/TXZ009",
+          "https://api.weather.gov/zones/forecast/TXZ010",
+          "https://api.weather.gov/zones/forecast/TXZ014",
+          "https://api.weather.gov/zones/forecast/TXZ015",
+          "https://api.weather.gov/zones/forecast/TXZ018",
+          "https://api.weather.gov/zones/forecast/TXZ019",
+          "https://api.weather.gov/zones/forecast/TXZ020",
+          "https://api.weather.gov/zones/forecast/TXZ317"
+        ],
+        "references": [
+          {
+            "@id": "https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.03ac14865def9ad2a653536878c00c6d3c551e2c.001.1",
+            "identifier": "urn:oid:2.49.0.1.840.0.03ac14865def9ad2a653536878c00c6d3c551e2c.001.1",
+            "sender": "w-nws.webmaster@noaa.gov",
+            "sent": "2026-08-17T22:24:00-05:00"
+          }
+        ],
+        "sent": "2026-08-18T06:08:00-05:00",
+        "effective": "2026-08-18T06:08:00-05:00",
+        "onset": "2026-08-18T12:00:00-05:00",
+        "expires": "2026-08-18T15:00:00-05:00",
+        "ends": "2026-08-18T21:00:00-05:00",
+        "status": "Actual",
+        "messageType": "Update",
+        "category": "Met",
+        "severity": "Moderate",
+        "certainty": "Likely",
+        "urgency": "Expected",
+        "event": "Heat Advisory",
+        "sender": "w-nws.webmaster@noaa.gov",
+        "senderName": "NWS Amarillo TX",
+        "headline": "Heat Advisory issued August 18 at 6:08AM CDT until August 18 at 9:00PM CDT by NWS Amarillo TX",
+        "description": "* WHAT...Temperatures as high as 107 degrees.\n\n* WHERE...Eastern portions of the Texas and Oklahoma Panhandles and\nPalo Duro Canyon.\n\n* WHEN...From noon today to 9 PM CDT this evening.\n\n* IMPACTS...Hot temperatures and high humidity may cause heat\nillnesses.",
+        "instruction": "Drink plenty of fluids, stay in an air-conditioned room, stay out of\nthe sun, and check up on relatives and neighbors.\n\nTake extra precautions when outside. Wear lightweight and loose\nfitting clothing. Try to limit strenuous activities to early morning\nor evening. Take action when you see symptoms of heat exhaustion and\nheat stroke.",
+        "response": "Execute",
+        "note": null,
+        "parameters": {
+          "AWIPSidentifier": [
+            "NPWAMA"
+          ],
+          "WMOidentifier": [
+            "WWUS74 KAMA 181108"
+          ],
+          "NWSheadline": [
+            "HEAT ADVISORY REMAINS IN EFFECT FROM NOON TODAY TO 9 PM CDT THIS EVENING"
+          ],
+          "BLOCKCHANNEL": [
+            "EAS",
+            "NWEM",
+            "CMAS"
+          ],
+          "VTEC": [
+            "/O.CON.KAMA.HT.Y.0038.260818T1700Z-260819T0200Z/"
+          ],
+          "eventEndingTime": [
+            "2026-08-18T21:00:00-05:00"
+          ]
+        },
+        "scope": "Public",
+        "code": "IPAWSv1.0",
+        "language": "en-US",
+        "web": "http://www.weather.gov",
+        "eventCode": {
+          "SAME": [
+            "NWS"
+          ],
+          "NationalWeatherService": [
+            "HTY"
+          ]
+        }
+      }
+    }
+  ]
+}
