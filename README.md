@@ -32,6 +32,9 @@ uvicorn alertmux.api:app --reload
 - `GET /alerts` — all current alerts. Optional `?authority=ng-nimet`.
 - `GET /health` — per-source health. Returns **HTTP 503** whenever the result
   is partial, so a standard monitor sees the degradation.
+- `GET /sources` — discovery: what alertmux covers and what it misses. Per-source
+  identity, structural gaps, authorities actually seen, and `hazard_coverage` /
+  `uncovered_hazards` (a heuristic keyword classification — see `sources.py`).
 
 Any response where a source failed — or returned fewer alerts than it holds —
 sets `partial: true`. Incomplete results are always labelled.

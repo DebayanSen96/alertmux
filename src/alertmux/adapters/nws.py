@@ -82,6 +82,12 @@ class NwsAdapter:
     source_id = "us-noaa"
     URL = "https://api.weather.gov/alerts/active"
 
+    # NWS is the one source with no structural gaps -- every Actual
+    # record observed on this feed supplies headline, description,
+    # sent, onset and expires. Empty, not absent: that is correct and
+    # meaningful, and /sources reports it as such without a fetch.
+    STRUCTURAL_GAPS: tuple[str, ...] = ()
+
     def __init__(self, client: httpx.Client | None = None, timeout: float = 30.0):
         self._client = client
         self._timeout = timeout
@@ -152,9 +158,8 @@ class NwsAdapter:
             # list view or severity is for USGS. unavailable_fields is
             # therefore built purely from what came back None on this
             # particular record (chiefly geometry).
-            structural: tuple[str, ...] = ()
             unavailable = sorted(
-                set(structural) | {k for k, v in fields.items() if v is None}
+                set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None}
             )
 
             alerts.append(

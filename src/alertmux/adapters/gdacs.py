@@ -186,6 +186,13 @@ class GdacsAdapter:
     source_id = "gdacs"
     URL = "https://www.gdacs.org/xml/rss.xml"
 
+    # GDACS structurally never supplies urgency, certainty or expires,
+    # and severity is deliberately never derived from alertlevel (see
+    # module docstring) -- all four are always unavailable regardless
+    # of what a particular record carries. A class attribute so
+    # /sources can report it without running a fetch.
+    STRUCTURAL_GAPS: tuple[str, ...] = ("severity", "urgency", "certainty", "expires")
+
     def __init__(self, client: httpx.Client | None = None, timeout: float = 30.0):
         self._client = client
         self._timeout = timeout
@@ -243,16 +250,10 @@ class GdacsAdapter:
                 "geometry": _geometry(item),
             }
 
-            # GDACS structurally never supplies urgency, certainty or
-            # expires, and severity is deliberately never derived from
-            # alertlevel (see comment above) - all four are always
-            # unavailable regardless of what this particular record
-            # carries. Unioned with whatever else came back None on this
-            # record, same derived-not-appended construction as
-            # nws.py/swic.py.
-            structural = ("severity", "urgency", "certainty", "expires")
+            # Unioned with whatever else came back None on this record,
+            # same derived-not-appended construction as nws.py/swic.py.
             unavailable = sorted(
-                set(structural) | {k for k, v in fields.items() if v is None}
+                set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None}
             )
 
             # "Raw reference" is the CAP file GDACS generated for this

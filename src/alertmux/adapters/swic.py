@@ -111,6 +111,14 @@ class SwicAdapter:
     URL = "https://severeweather.wmo.int/g/wfs"
     TYPE_NAME = "local_postgis:effective_warning_view"
 
+    # Fields this feed structurally never supplies, regardless of what
+    # any particular record carries -- the list view carries no
+    # headline/description (those live only in the CAP file) and no
+    # onset/expires. A class attribute so /sources can report it
+    # without running a fetch. See parse() for how it is combined with
+    # per-record gaps.
+    STRUCTURAL_GAPS: tuple[str, ...] = ("onset", "expires", "headline", "description")
+
     def __init__(
         self,
         client: httpx.Client | None = None,
@@ -200,13 +208,11 @@ class SwicAdapter:
                 "geometry": feature.get("geometry"),
             }
 
-            # Source-shape entries: fields this feed structurally never
-            # supplies. Unioned with every optional field that came back
-            # None, so the list is exhaustive by construction rather than
-            # by remembering to append.
-            structural = ("onset", "expires", "headline", "description")
+            # Unioned with every optional field that came back None, so
+            # the list is exhaustive by construction rather than by
+            # remembering to append.
             unavailable = sorted(
-                set(structural) | {k for k, v in fields.items() if v is None}
+                set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None}
             )
 
             alerts.append(

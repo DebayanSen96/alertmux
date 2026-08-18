@@ -13,6 +13,7 @@ How alertmux is put together and why each part is shaped the way it is.
 official feeds ──> adapters ──> NormalisedAlert[] ──> query ──> api
                    swic.py                            collect   /alerts
                    usgs.py                                      /health
+                                                                 /sources
 ```
 
 One direction. No writes to any external system. No state except a 60-second cache.
@@ -26,6 +27,7 @@ One direction. No writes to any external system. No state except a 60-second cac
 | `adapters/__init__.py` | Adapter registry — `default_adapters()` |
 | `query.py` | Aggregation, partial-result labelling |
 | `dedupe.py` | Cross-source duplicate reporting — never merges or drops |
+| `sources.py` | `/sources` report: structural gaps, authorities seen, heuristic hazard coverage |
 | `api.py` | FastAPI, TTL cache, HTTP status semantics |
 
 An adapter knows its own source's quirks and **nothing** about any other adapter,
@@ -179,6 +181,65 @@ records are duplicates. Such a candidate group is discarded entirely, and
 counted in `ambiguous_duplicate_groups` rather than silently dropped
 (principle 4). See DECISIONS.md D13's 18 Aug 2026 addendum for the
 measurement that forced this rule.
+
+## sources.py — coverage, not health
+
+`/health` answers "is it working." `/sources` answers "what does this system
+actually cover, and what does it miss" — a different question aimed at a
+human deciding whether to rely on it for a given hazard or region, not a
+monitor.
+
+```python
+class SourceSummary(BaseModel):
+    source_id: str
+    endpoint: str
+    authorities: list[str]       # observed THIS fetch, not declared
+    authority_count: int
+    structural_gaps: list[str]   # from the adapter's STRUCTURAL_GAPS
+    ok: bool
+    alert_count: int
+    latency_ms: int | None
+    truncated: bool
+```
+
+**`structural_gaps` is reportable without a fetch.** Each adapter's
+`structural` tuple — fields that feed structurally never supplies — was a
+local inside `parse()`, invisible outside a live run. It is now a class
+attribute, `STRUCTURAL_GAPS`, on all five adapters (`NwsAdapter.STRUCTURAL_GAPS`
+is `()` — NWS is the one source with no structural gaps, which is correct and
+meaningful, not an oversight). `parse()` still unions it with whatever came
+back `None` on a given record; `/sources` reads the class attribute directly.
+
+**`authorities` is measured, not declared.** It comes from
+`{a.provenance.authority for a in <this source's alerts from this fetch>}`
+— a source that is down or genuinely quiet this fetch reports an empty list,
+even if it normally carries 59.
+
+**`hazard_coverage` is the endpoint's reason to exist.**
+
+```python
+hazard_coverage: dict[str, list[str]]   # family -> source_ids that contributed
+uncovered_hazards: list[str]            # families with zero contributing sources
+```
+
+Measured 18 Aug 2026: tsunami had zero contributing sources and volcano had
+one, while the authority count read 59/300 and looked healthy by itself. An
+authority count alone hides a missing hazard family; `hazard_coverage` does
+not let that gap disappear into a healthy-looking total.
+
+**Hazard classification is heuristic and says so.** `classify_hazard` maps
+each alert's free-text `event` field to a family via an explicit keyword
+table, `HAZARD_KEYWORDS`. Wording varies by authority — "THUNDERSTORMS" vs
+"Heat Advisory" vs "Wildfire" — so this *will* misfile some alerts. It is
+documented in the module docstring and the `/sources` endpoint docstring,
+and — critically — it **never writes back to `NormalisedAlert`**; it only
+builds this one summary. Extending the keyword table follows the same
+evidence bar as DECISIONS.md D1: a real observed `event` string, not a guess.
+
+**Read-only over the shared cache.** `build_sources_response()` takes an
+already-collected `AlertsResponse` and never mutates it or anything
+reachable from it; `/sources` calls `_collect_shared()`, the same
+non-deep-copying path `/health` uses, per D9.
 
 ## api.py — three things worth knowing
 

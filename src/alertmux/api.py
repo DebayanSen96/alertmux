@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from alertmux.adapters import default_adapters
 from alertmux.query import AlertsResponse, collect
 from alertmux.schema import DISCLAIMER
+from alertmux.sources import SourcesResponse, build_sources_response
 
 __all__ = ["app", "get_adapters", "clear_cache", "DISCLAIMER"]
 
@@ -119,3 +120,31 @@ def health(adapters=Depends(get_adapters)) -> dict:
         # monitor. Degraded service must be visible at the status line.
         return JSONResponse(status_code=503, content=body)
     return body
+
+
+@app.get("/sources")
+def sources(adapters=Depends(get_adapters)) -> SourcesResponse:
+    """What this system covers, and what it misses.
+
+    Where `/health` answers "is it working," this answers "what does
+    alertmux actually cover, and what does it miss" -- per-source
+    identity and structural shape (`structural_gaps`, from each
+    adapter's `STRUCTURAL_GAPS`, reportable without a fetch), the
+    authorities actually observed this fetch (not a declared list), and
+    `hazard_coverage`: which sources returned at least one alert in each
+    hazard family. `uncovered_hazards` names families with zero
+    contributing sources -- an authority count alone can look healthy
+    (e.g. 59/300 sources) while a whole hazard family, such as tsunami,
+    has no coverage at all. That is this endpoint's reason to exist.
+
+    `hazard_coverage`/`uncovered_hazards` classify each alert's
+    free-text `event` field with an explicit keyword table
+    (`sources.HAZARD_KEYWORDS`) -- heuristic, not authoritative. It will
+    misfile some alerts (wording varies by authority) and it never
+    alters `NormalisedAlert` data anywhere else; see `sources.py`'s
+    module docstring for the full caveat.
+
+    Read-only: takes the shared cached object, like `/health`, per D9.
+    """
+    result = _collect_shared(adapters)
+    return build_sources_response(adapters, result)

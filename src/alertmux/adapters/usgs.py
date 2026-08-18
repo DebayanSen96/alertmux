@@ -50,6 +50,17 @@ class UsgsAdapter:
         "summary/all_hour.geojson"
     )
 
+    # USGS reports observed earthquakes, not forecast warnings: no
+    # expiry, no CAP urgency/certainty, no description field at all.
+    # A class attribute so /sources can report it without a fetch.
+    STRUCTURAL_GAPS: tuple[str, ...] = (
+        "urgency",
+        "certainty",
+        "onset",
+        "expires",
+        "description",
+    )
+
     def __init__(self, client: httpx.Client | None = None, timeout: float = 30.0):
         self._client = client
         self._timeout = timeout
@@ -101,9 +112,8 @@ class UsgsAdapter:
                 "geometry": feature.get("geometry"),
             }
 
-            structural = ("urgency", "certainty", "onset", "expires", "description")
             unavailable = sorted(
-                set(structural) | {k for k, v in fields.items() if v is None}
+                set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None}
             )
 
             alerts.append(

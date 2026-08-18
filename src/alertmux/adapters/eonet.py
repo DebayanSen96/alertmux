@@ -168,6 +168,18 @@ class EonetAdapter:
     source_id = "nasa-eonet"
     URL = "https://eonet.gsfc.nasa.gov/api/v2.1/events"
 
+    # EONET is an observation feed, not a warning authority: severity,
+    # urgency, certainty, expiry and onset are all warning-authority
+    # concepts NASA never states. A class attribute so /sources can
+    # report it without a fetch.
+    STRUCTURAL_GAPS: tuple[str, ...] = (
+        "severity",
+        "urgency",
+        "certainty",
+        "expires",
+        "onset",
+    )
+
     def __init__(
         self,
         client: httpx.Client | None = None,
@@ -223,15 +235,11 @@ class EonetAdapter:
                 "geometry": _latest_geometry(event),
             }
 
-            # severity/urgency/certainty/expires/onset are structurally
-            # absent from every EONET event - the source is an
-            # observation feed, not a warning feed, so no record could
-            # ever carry them. Unioned with whatever else
-            # came back None on this particular event, same
-            # derived-not-appended construction as gdacs.py/nws.py.
-            structural = ("severity", "urgency", "certainty", "expires", "onset")
+            # Unioned with whatever else came back None on this
+            # particular event, same derived-not-appended construction
+            # as gdacs.py/nws.py.
             unavailable = sorted(
-                set(structural) | {k for k, v in fields.items() if v is None}
+                set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None}
             )
 
             alerts.append(
