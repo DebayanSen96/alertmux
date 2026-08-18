@@ -22,7 +22,7 @@ from alertmux.adapters.base import FetchResult
 from alertmux.schema import NormalisedAlert, Provenance
 
 AUTHORITY = "us-usgs"
-USER_AGENT = "alertmux/0.1 (+https://github.com/ADJ-HUB1/alertmux)"
+USER_AGENT = "alertmux/0.1 (+https://github.com/jamiusaliu/alertmux)"
 
 
 def _epoch_ms(value: int | None) -> datetime | None:

@@ -44,7 +44,7 @@ import httpx
 from alertmux.adapters.base import FetchResult
 from alertmux.schema import NormalisedAlert, Provenance
 
-USER_AGENT = "alertmux/0.1 (+https://github.com/ADJ-HUB1/alertmux)"
+USER_AGENT = "alertmux/0.1 (+https://github.com/jamiusaliu/alertmux)"
 
 _AUTHORITY_RE = re.compile(r"^([a-z]{2}-[a-z0-9]+)")
 
