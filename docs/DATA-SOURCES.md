@@ -260,6 +260,35 @@ Keep it in `source_severity`.
 The JSON API at `/gdacsapi/api/events/geteventlist/MAP` returned 400 for every
 parameter name tried. Use the RSS.
 
+**Implemented in `adapters/gdacs.py`, 18 Aug 2026 (issue #13).** The first
+RSS/XML adapter in the codebase — parsed with the standard library's
+`xml.etree.ElementTree`, no new dependency. Notes gathered while building it:
+
+- **Identity: `gdacs:eventid` + `gdacs:episodeid`, not `<guid>`.** The RSS
+  `<guid>` on this feed is only `{eventtype}{eventid}` (e.g. `EQ1559738`) —
+  stable, but coarser than needed, since the same disaster accumulates
+  multiple episodes as it evolves (the earthquake fixture item is
+  `eventid=1559738`, `episodeid=1726926`). Verified stable by fetching the
+  live feed twice, 18 Aug 2026: the same 369 `(eventid, episodeid)` pairs
+  came back identical on both fetches.
+- **`gdacs:eventtype` needs an explicit table, same as SWIC's severity
+  codes.** Observed in the live feed that day: `WF` 319, `FL` 19, `EQ` 16,
+  `DR` 12, `TC` 3 — 369 total. `VO` (volcano) is in the mapping table on the
+  strength of GDACS's own documentation, though it was not present in that
+  day's sample.
+- **No `urgency`, `certainty`, or `expires` at all** — not even as unmapped
+  source-native values. All three are structurally unavailable on every
+  alert.
+- **Timestamps are RFC-822** (`pubDate`, `gdacs:fromdate`), not ISO-8601 —
+  parsed with `email.utils.parsedate_to_datetime`, not `fromisoformat`.
+- **Geometry:** `geo:Point` is used when present (most precise); `gdacs:bbox`
+  (`lonmin lonmax latmin latmax`) is mapped to a rectangular GeoJSON Polygon
+  when there is no point — a faithful reading, not an approximation, since a
+  bbox unambiguously denotes a rectangle.
+- A fixture trimmed to 5 items (`tests/fixtures/gdacs_rss.xml`, one each of
+  EQ/DR/WF/TC/FL) was recorded from the live feed the same day; real field
+  names and values throughout, no invented data.
+
 ## NASA EONET — satellite-observed events
 
 ```

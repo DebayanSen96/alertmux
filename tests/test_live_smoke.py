@@ -5,6 +5,7 @@ Excluded from the default run so CI never depends on third-party uptime.
 
 import pytest
 
+from alertmux.adapters.gdacs import GdacsAdapter
 from alertmux.adapters.nws import NwsAdapter
 from alertmux.adapters.swic import SwicAdapter
 from alertmux.adapters.usgs import UsgsAdapter
@@ -46,3 +47,16 @@ def test_nws_live_returns_alerts_and_never_relays_test_status():
     for alert in result.alerts:
         assert alert.provenance.authority == "us-noaa"
         assert alert.event != "Test Message"
+
+
+def test_gdacs_live_returns_events_and_never_states_a_severity():
+    """gdacs:alertlevel is an impact score, not a CAP severity judgement
+    - GDACS never states hazard severity, so no live alert should ever
+    carry a non-null `severity`."""
+    result = GdacsAdapter().fetch()
+    assert result.ok is True, result.error
+    assert len(result.alerts) > 0
+    for alert in result.alerts:
+        assert alert.provenance.authority == "gdacs"
+        assert alert.event
+        assert alert.severity is None

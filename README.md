@@ -14,6 +14,7 @@ the issuing authority.**
 | WMO SWIC | 59 national alerting authorities, warnings currently in force |
 | USGS | Global earthquakes, past hour |
 | NOAA / NWS | United States, active alerts |
+| GDACS | Global disaster alerts (earthquakes, floods, cyclones, drought, wildfire) |
 
 ## Install
 
@@ -115,7 +116,7 @@ fetch, so they cannot be used as a deduplication key.
 
 ```bash
 pytest          # the whole unit suite; no network, fixtures only
-pytest -m live  # hits the real WMO SWIC, USGS and NOAA/NWS endpoints
+pytest -m live  # hits the real WMO SWIC, USGS, NOAA/NWS and GDACS endpoints
 ```
 
 Live tests are excluded from the default run and from CI, so neither depends
