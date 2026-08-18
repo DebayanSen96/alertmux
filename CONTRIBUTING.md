@@ -55,3 +55,15 @@ suite — CI must not depend on third-party uptime.
 - `good first issue` — self-contained, no deep context needed.
 - `help wanted` — we would like help here.
 - `new source` — adding an alerting authority or feed.
+
+## Before changing something that looks wrong
+
+Several things in this codebase look like oversights and are not — most notably the
+deliberately incomplete severity tables in `adapters/swic.py`. Each such choice has
+an entry in [`docs/DECISIONS.md`](docs/DECISIONS.md) recording the reasoning, what it
+costs if wrong, and what evidence would justify overturning it.
+
+Bring that evidence and the change is welcome. Without it, the PR will be closed with
+a pointer to the entry — not because the idea is bad, but because in a system that
+relays hazard warnings, "it matches the obvious pattern" is not the same as "it is
+true".

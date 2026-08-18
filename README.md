@@ -161,6 +161,20 @@ on third-party uptime. A new adapter's live test belongs in
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and commit style.
 
+## Documentation
+
+Deeper reference, kept in `docs/` and updated as the project grows:
+
+| Document | What it covers |
+|---|---|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How the modules fit together, and what each defensive check is guarding against |
+| [`docs/DATA-SOURCES.md`](docs/DATA-SOURCES.md) | Every endpoint in detail — including WMO SWIC's undocumented WFS API, the 59 authority codes, and the confirmed CAP severity mapping |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Why things are the way they are, what each choice costs if wrong, and what evidence would justify changing it |
+
+If you are about to "fix" something that looks obviously wrong — particularly the
+incomplete severity tables — read `docs/DECISIONS.md` first. It is probably
+deliberate, and the entry will tell you what evidence would change our mind.
+
 ## Licence
 
 MIT.
