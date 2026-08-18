@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 
+from alertmux.dedupe import DuplicateGroup, group_duplicates
 from alertmux.schema import DISCLAIMER, NormalisedAlert
 
 
@@ -36,6 +37,10 @@ class AlertsResponse(BaseModel):
     # typo is distinguishable from a genuinely quiet day.
     available_authorities: list[str] | None = None
     disclaimer: str = DISCLAIMER
+    # Reports cross-source duplication (e.g. SWIC's us-noaa slice vs a
+    # direct NWS fetch). Never changes `alerts` -- see dedupe.py and
+    # DECISIONS.md D13.
+    duplicate_groups: list[DuplicateGroup] = Field(default_factory=list)
 
 
 def collect(adapters) -> AlertsResponse:
@@ -76,4 +81,5 @@ def collect(adapters) -> AlertsResponse:
         # A truncated source is incomplete data even though ok is True.
         partial=any((not s.ok) or s.truncated for s in statuses),
         retrieved_at=datetime.now(tz=timezone.utc),
+        duplicate_groups=group_duplicates(alerts),
     )

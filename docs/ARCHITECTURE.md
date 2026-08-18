@@ -25,6 +25,7 @@ One direction. No writes to any external system. No state except a 60-second cac
 | `adapters/usgs.py` | USGS earthquakes |
 | `adapters/__init__.py` | Adapter registry — `default_adapters()` |
 | `query.py` | Aggregation, partial-result labelling |
+| `dedupe.py` | Cross-source duplicate reporting — never merges or drops |
 | `api.py` | FastAPI, TTL cache, HTTP status semantics |
 
 An adapter knows its own source's quirks and **nothing** about any other adapter,
@@ -144,6 +145,28 @@ source_id=getattr(adapter, "source_id", "unknown")
 The failure handler cannot itself fail on an adapter so broken it lacks a
 `source_id`. Handling failure with code that can fail is how a degraded service
 becomes a dead one.
+
+## dedupe.py — reports, never edits
+
+```python
+def event_key(alert: NormalisedAlert) -> str | None: ...
+def group_duplicates(alerts: list[NormalisedAlert]) -> list[DuplicateGroup]: ...
+```
+
+The key is `event` + `area_description`, case-folded and whitespace-collapsed
+and nothing more — that pair is what actually matches SWIC's `us-noaa` slice
+against a direct NWS fetch (see DATA-SOURCES.md's "Source overlap" section
+and DECISIONS.md D13). A record with no `area_description` keys to `None`
+and is excluded from grouping rather than matched to other unkeyable
+records.
+
+Grouping requires exact key agreement — no fuzzy or similarity matching
+anywhere in this module, because wrongly grouping two distinct hazards is
+the failure mode a future notifier (v0.5) cannot afford. Within a group,
+`preferred_id` is the record with the most optional schema fields populated
+(ties broken by `id` for determinism), and `AlertsResponse.alerts` is
+untouched either way — `collect()` calls `group_duplicates()` purely to
+populate `duplicate_groups` alongside the full, unfiltered alert list.
 
 ## api.py — three things worth knowing
 

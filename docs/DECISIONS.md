@@ -209,6 +209,48 @@ requires the full track in one alert (e.g., rendering a storm path) — at which
 point a `GeometryCollection` becomes worth the schema inconsistency it costs
 every other adapter's assumption of a single Point/Polygon.
 
+## D13 — Duplicate detection reports, it never merges or drops
+
+**Decision.** `dedupe.py` groups alerts that share an exact, normalised
+`event` + `area_description` key and names the richest record in each group
+as `preferred_id`. It never removes an alert from `AlertsResponse.alerts`
+and never combines two records into one. Matching is exact-only: no edit
+distance, no token overlap, no similarity threshold anywhere in the module.
+
+**Why.** Measured 18 Aug 2026: SWIC's `us-noaa` slice and a direct NWS fetch
+overlap completely — 133 of SWIC's 133 distinct (event, area_description)
+pairs also appear in NWS's 148, and NWS carries 32 source fields against
+SWIC's 9. That overlap is real and worth surfacing. But merging would mean
+choosing whose wording a consumer sees, which is authoring hazard content by
+another name — forbidden by principle 1. And approximate matching trades a
+recoverable cost (a redundant record) for an unrecoverable one: v0.5's
+notifier will read this module's output, and wrongly grouping two distinct
+hazards there could suppress a real warning. Preferring false negatives is
+therefore not caution for its own sake — it is the same asymmetry D1 already
+applies to severity codes, applied here to identity.
+
+`preferred_id` ranks by how many optional schema fields are populated — the
+inverse of `unavailable_fields`, so it is a count anyone can verify from the
+response, not a judgement about which authority is more trustworthy. Ties
+break on `id` so the same input always produces the same output.
+
+**Cost of being wrong.** Missing a duplicate (e.g. wording differs enough
+that a future refinement of the key would catch it) costs a redundant
+record shown twice — annoying, never dangerous. Wrongly grouping two
+distinct hazards would let a consumer treat two different warnings as one,
+which for a future notifier means a suppressed alert during exactly the
+event people depend on it for. The exact-match-only rule exists to keep
+that second failure mode unreachable.
+
+**What would justify changing it.** A demonstrated need for merging (not
+just reporting) would require a separate design decision, not an extension
+of this module — it changes principle 1's guarantee and needs its own
+sign-off. A demonstrated case where exact key matching misses real
+duplicates that a *conservative, specific, documented* extra normalisation
+step would catch (not a general similarity threshold) could extend
+`_normalise`, with the same evidence bar as D1: a real observed pair,
+attached to the PR.
+
 ---
 
 ## Things we got wrong, kept here on purpose

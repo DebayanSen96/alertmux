@@ -160,3 +160,36 @@ def test_truncated_but_ok_source_makes_the_response_partial():
 def test_response_carries_the_relay_disclaimer():
     response = collect([FakeAdapter("a")])
     assert "not a substitute" in response.disclaimer.lower()
+
+
+def _dupe_alert(alert_id: str, source_id: str) -> NormalisedAlert:
+    return NormalisedAlert(
+        id=alert_id,
+        event="Heat Advisory",
+        area_description="Cook County, IL",
+        provenance=Provenance(
+            authority="us-noaa",
+            source_id=source_id,
+            source_url="https://example.test",
+            retrieved_at=NOW,
+        ),
+    )
+
+
+def test_collect_populates_duplicate_groups_without_dropping_alerts():
+    """Grouping must never shrink `alerts` -- it only reports on it."""
+    response = collect([
+        FakeAdapter("wmo-swic", alerts=[_dupe_alert("wmo-swic:1", "wmo-swic")]),
+        FakeAdapter("nws", alerts=[_dupe_alert("nws:1", "nws")]),
+    ])
+    assert len(response.alerts) == 2
+    assert len(response.duplicate_groups) == 1
+    group = response.duplicate_groups[0]
+    assert set(group.alert_ids) == {"wmo-swic:1", "nws:1"}
+
+
+def test_collect_yields_no_groups_for_a_single_source_with_no_duplicates():
+    response = collect([
+        FakeAdapter("a", alerts=[_alert("a:1", "a")]),
+    ])
+    assert response.duplicate_groups == []

@@ -69,6 +69,35 @@ def test_alerts_never_reports_a_severity_it_was_not_given():
     assert alert["source_severity"] == "3"
 
 
+def _dupe_alert(alert_id: str, source_id: str) -> NormalisedAlert:
+    return NormalisedAlert(
+        id=alert_id,
+        event="Heat Advisory",
+        area_description="Cook County, IL",
+        provenance=Provenance(
+            authority="us-noaa",
+            source_id=source_id,
+            source_url="https://example.test",
+            retrieved_at=NOW,
+        ),
+    )
+
+
+def test_alerts_returns_every_record_even_when_duplicate_groups_are_reported():
+    """Grouping is a report, not a filter -- /alerts must never shrink."""
+    client = _client([
+        FakeAdapter("wmo-swic", alerts=[_dupe_alert("wmo-swic:1", "wmo-swic")]),
+        FakeAdapter("nws", alerts=[_dupe_alert("nws:1", "nws")]),
+    ])
+    body = client.get("/alerts").json()
+    assert len(body["alerts"]) == 2
+    assert len(body["duplicate_groups"]) == 1
+    assert set(body["duplicate_groups"][0]["alert_ids"]) == {
+        "wmo-swic:1",
+        "nws:1",
+    }
+
+
 def test_alerts_flags_partial_when_a_source_fails():
     client = _client([
         FakeAdapter("wmo-swic", alerts=[_alert()]),
