@@ -577,3 +577,178 @@ def test_one_page_still_works_no_second_request():
     assert len(route.calls) == 1
     assert len(result.alerts) == 3
     assert result.truncated is False
+
+
+# ---------------------------------------------------------------------------
+# CAP detail fetch (issue #4)
+# ---------------------------------------------------------------------------
+
+CAP_DETAIL_FIXTURE = (
+    Path(__file__).parent / "fixtures" / "swic_cap_detail.xml"
+).read_bytes()
+
+
+@pytest.fixture(autouse=True)
+def _clear_cap_cache():
+    from alertmux.adapters.swic import clear_cap_cache
+
+    clear_cap_cache()
+    yield
+    clear_cap_cache()
+
+
+def test_parse_cap_detail_reads_namespaced_tags():
+    from alertmux.adapters.swic import parse_cap_detail
+
+    detail = parse_cap_detail(CAP_DETAIL_FIXTURE)
+    assert detail.headline.startswith("Light to Moderate Rain")
+    assert detail.instruction == "Please follow SDMA guidelines."
+    assert detail.severity == "Moderate"
+    assert detail.urgency == "Expected"
+    assert detail.certainty == "Likely"
+
+
+def test_parse_cap_detail_reads_onset_and_expires_with_offsets():
+    from alertmux.adapters.swic import parse_cap_detail
+
+    detail = parse_cap_detail(CAP_DETAIL_FIXTURE)
+    # Source carries +05:30; both fields must come back converted to UTC.
+    assert detail.onset == datetime(2026, 8, 18, 16, 22, 31, tzinfo=timezone.utc)
+    assert detail.expires == datetime(2026, 8, 18, 19, 30, tzinfo=timezone.utc)
+
+
+def test_parse_cap_detail_empty_description_is_none_not_empty_string():
+    from alertmux.adapters.swic import parse_cap_detail
+
+    detail = parse_cap_detail(CAP_DETAIL_FIXTURE)
+    assert detail.description is None
+
+
+def test_parse_cap_detail_raises_on_non_cap_xml():
+    from alertmux.adapters.swic import parse_cap_detail
+
+    with pytest.raises(ValueError, match="CAP 1.2"):
+        parse_cap_detail(b"<html><body>not cap</body></html>")
+
+
+def test_parse_cap_detail_raises_when_no_info_block():
+    from alertmux.adapters.swic import parse_cap_detail
+
+    xml = (
+        '<cap:alert xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">'
+        "<cap:identifier>x</cap:identifier></cap:alert>"
+    )
+    with pytest.raises(ValueError, match="info"):
+        parse_cap_detail(xml)
+
+
+def test_parse_cap_detail_prefers_english_info_block():
+    from alertmux.adapters.swic import parse_cap_detail
+
+    xml = """<cap:alert xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
+      <cap:info>
+        <cap:language>zh-CN</cap:language>
+        <cap:headline>中文标题</cap:headline>
+      </cap:info>
+      <cap:info>
+        <cap:language>en-US</cap:language>
+        <cap:headline>English headline</cap:headline>
+      </cap:info>
+    </cap:alert>"""
+    detail = parse_cap_detail(xml)
+    assert detail.headline == "English headline"
+    assert detail.language == "en-US"
+
+
+@respx.mock
+def test_enriched_alert_shrinks_unavailable_fields():
+    from alertmux.adapters.swic import enrich_with_detail, parse_cap_detail
+
+    detail = parse_cap_detail(CAP_DETAIL_FIXTURE)
+    alert = SwicAdapter().parse(FIXTURE, NOW)[0]
+    assert "headline" in alert.unavailable_fields
+    assert "instruction" in alert.unavailable_fields
+
+    enriched = enrich_with_detail(alert, detail)
+    assert enriched.headline == detail.headline
+    assert enriched.instruction == "Please follow SDMA guidelines."
+    assert enriched.expires == detail.expires
+    assert "headline" not in enriched.unavailable_fields
+    assert "instruction" not in enriched.unavailable_fields
+    assert "expires" not in enriched.unavailable_fields
+    # description stayed absent on both sides -- still unavailable.
+    assert "description" in enriched.unavailable_fields
+
+
+def test_enrich_with_detail_never_mutates_the_original_alert():
+    from alertmux.adapters.swic import enrich_with_detail, parse_cap_detail
+
+    detail = parse_cap_detail(CAP_DETAIL_FIXTURE)
+    alert = SwicAdapter().parse(FIXTURE, NOW)[0]
+    enrich_with_detail(alert, detail)
+    assert alert.headline is None
+    assert "headline" in alert.unavailable_fields
+
+
+def test_named_cap_severity_wins_over_list_view_integer_code():
+    """The CAP file is the authority's own record; it outranks the list
+    view's integer-code mapping when both are present. The raw integer
+    stays put in source_severity either way."""
+    from alertmux.adapters.swic import CapDetail, enrich_with_detail
+
+    alert = SwicAdapter().parse(FIXTURE, NOW)[0]
+    assert alert.severity == "Severe"  # from s=3
+    assert alert.source_severity == "3"
+
+    detail = CapDetail(severity="Extreme", urgency="Immediate", certainty="Observed")
+    enriched = enrich_with_detail(alert, detail)
+    assert enriched.severity == "Extreme"
+    assert enriched.source_severity == "3"
+
+
+@respx.mock
+def test_fetch_detail_parses_and_returns_cap_detail():
+    capurl = "in-ndma-xx/2026/08/18/16/51/58-detail.xml"
+    respx.get(f"https://severeweather.wmo.int/v2/cap-alerts/{capurl}").mock(
+        return_value=httpx.Response(200, content=CAP_DETAIL_FIXTURE)
+    )
+    detail = SwicAdapter().fetch_detail(capurl)
+    assert detail.severity == "Moderate"
+    assert detail.expires == datetime(2026, 8, 18, 19, 30, tzinfo=timezone.utc)
+
+
+@respx.mock
+def test_fetch_detail_caches_and_never_fetches_twice():
+    capurl = "in-ndma-xx/2026/08/18/16/51/58-detail.xml"
+    route = respx.get(f"https://severeweather.wmo.int/v2/cap-alerts/{capurl}").mock(
+        return_value=httpx.Response(200, content=CAP_DETAIL_FIXTURE)
+    )
+    adapter = SwicAdapter()
+    first = adapter.fetch_detail(capurl)
+    second = adapter.fetch_detail(capurl)
+    assert first == second
+    assert route.call_count == 1
+
+
+@respx.mock
+def test_fetch_detail_missing_cap_file_raises_clear_error():
+    from alertmux.adapters.swic import CapDetailError
+
+    capurl = "xx-nowhere/does-not-exist.xml"
+    respx.get(f"https://severeweather.wmo.int/v2/cap-alerts/{capurl}").mock(
+        return_value=httpx.Response(404)
+    )
+    with pytest.raises(CapDetailError, match="404|Error"):
+        SwicAdapter().fetch_detail(capurl)
+
+
+@respx.mock
+def test_fetch_detail_malformed_xml_raises_clear_error():
+    from alertmux.adapters.swic import CapDetailError
+
+    capurl = "xx-broken/broken.xml"
+    respx.get(f"https://severeweather.wmo.int/v2/cap-alerts/{capurl}").mock(
+        return_value=httpx.Response(200, content=b"not xml at all")
+    )
+    with pytest.raises(CapDetailError):
+        SwicAdapter().fetch_detail(capurl)

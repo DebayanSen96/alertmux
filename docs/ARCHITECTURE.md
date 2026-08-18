@@ -299,6 +299,20 @@ already-collected `AlertsResponse` and never mutates it or anything
 reachable from it; `/sources` calls `_collect_shared()`, the same
 non-deep-copying path `/health` uses, per D9.
 
+**CAP detail enrichment (issue #4, D16).** `parse_cap_detail()` reads a raw
+CAP 1.2 file into a `CapDetail` model; `fetch_cap_detail()` fetches one,
+cached by `capurl` **forever** (no TTL — the path is content-addressed, so
+the same `capurl` can never resolve to different bytes). `enrich_with_detail()`
+merges a `CapDetail` into a `NormalisedAlert`, filling only fields the list
+view had none of (`headline`, `description`, `instruction`, `onset`,
+`expires`, `geometry`), except severity/urgency/certainty: there, the CAP
+file's named value wins outright over the list view's mapped one whenever
+both are present, since the CAP file is the authority's own signed record.
+None of this runs from `fetch()`/`parse()` — it is only reachable through
+`SwicAdapter.fetch_detail()` and the `/alerts/{alert_id}/detail` route,
+because fetching one CAP file per alert on every list poll would be ~2,200
+requests to WMO per fetch.
+
 ## api.py — three things worth knowing
 
 **The cache hands out deep copies.**
@@ -322,6 +336,15 @@ if not matching:
 A typo returns `[]`, which in this domain reads as "that country has issued no
 warnings" — a dangerous false negative. Naming the authorities that answered lets a
 caller tell a typo from genuine quiet.
+
+**`/alerts/{alert_id:path}/detail` uses the `:path` converter, not the
+default one.** An alert id embeds a `capurl`, and a `capurl` contains `/`
+(`ng-nimet-en/2026/08/17/.../a.xml`). The default single-segment converter
+stops at the first `/`, which would make most real SWIC ids unroutable.
+Two distinct failure modes get two distinct status codes: `404` when
+`alert_id` is not in the current fetch, `502` when the id is known but its
+CAP file could not be fetched or parsed — never a silently empty record for
+either.
 
 **Degraded service is visible at the status line.**
 

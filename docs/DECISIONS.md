@@ -441,6 +441,77 @@ already covered.
 project invents, since inventing one is exactly the failure mode this
 decision refuses.
 
+## D16 — CAP detail is opt-in per alert, cached forever, and its named
+severity/urgency/certainty outrank the list view's integer codes
+
+**Decision.** `adapters/swic.py` adds `fetch_cap_detail()` /
+`SwicAdapter.fetch_detail()`, fetching and parsing one alert's raw CAP 1.2
+file on explicit request only — never from `fetch()` or `parse()` — and a
+new `GET /alerts/{alert_id:path}/detail` route that resolves the alert's
+`provenance.raw_reference` (its `capurl`) and returns the merged record via
+`enrich_with_detail()`. Where the CAP file states a named `severity`,
+`urgency` or `certainty`, that value **replaces** the list view's
+integer-code mapping in the enriched record; the raw integer stays
+untouched in `source_severity`/`source_urgency`/`source_certainty` either
+way.
+
+**Why fetching stays opt-in.** With ~2,200 alerts in force, fetching one CAP
+file per alert on every `/alerts` poll would be ~2,200 requests to WMO per
+fetch — far too expensive for a list endpoint (issue #4, same reasoning the
+module docstring already gave for why v0.1 never did this inline). The
+detail route costs exactly one extra request, made only when a caller
+actually wants one alert's full record.
+
+**Why the cache has no TTL.** `capurl` is content-addressed — verified 17
+Aug 2026 (see DATA-SOURCES.md): the path itself embeds a hash of the file's
+own content, so the same `capurl` can never resolve to different bytes once
+published. A TTL exists to bound how long a *possibly-changed* value is
+served as fresh; there is nothing here that can change, so `fetch_cap_detail`
+caches unconditionally rather than pretending there's a staleness window to
+manage. This is a different cache discipline from `registry.py`'s (D15's
+neighbour, 24h TTL with reported age) and from `api.py`'s 60s `/alerts`
+cache — both of those front data that *does* change.
+
+**Why the CAP-named values outrank the list view's mapped ones.** The CAP
+file is the authority's own signed record — the same document the list
+view's `s`/`u`/`c` integers were themselves confirmed against (D1). When
+both are present, the CAP file is the more direct statement, not a second
+opinion to weigh against the first. This does not relax D1: the integer
+table still maps only verified codes, and an unmapped integer still yields
+`None` on the list view — CAP detail enrichment fills that gap when
+`fetch_detail` is actually called, it does not change what `/alerts` alone
+can state.
+
+**Why `fetch_detail` raises rather than returning `None` on failure.** A
+`None` return is ambiguous between "the CAP file has nothing to report"
+(which cannot happen — `parse_cap_detail` requires at least one `<info>`
+block or raises) and "the fetch or parse failed." Principle 4 forbids
+exactly that ambiguity, so failure is a raised `CapDetailError`, and the API
+route turns it into a distinct `502` — separate from the `404` an unknown
+`alert_id` gets — rather than any code path returning an emptied-out
+record that would read as "no detail exists."
+
+**Why `{alert_id:path}`, not the plain string converter.** An alert id is
+`f"{source_id}:{capurl}"` and `capurl` itself contains `/`
+(`ng-nimet-en/2026/08/17/14/50/16-<hash>.xml`). FastAPI's default path
+converter stops at the first `/`, which would make most real SWIC alert ids
+unroutable through a plain `{alert_id}` segment.
+
+**Cost of being wrong.** Caching a CAP file forever on a wrong assumption
+about content-addressing would serve a stale record indefinitely with no
+way to detect it — the evidence bar above (verified path structure, not
+assumed) exists specifically to guard against that. Letting the CAP-named
+severity silently disagree with the list view's mapped value without
+documenting the precedence would leave a future reader unable to tell which
+was chosen or why; this entry is that record.
+
+**What would justify changing it.** Evidence that a `capurl` has ever
+resolved to different content on a re-fetch would break the "cache forever"
+premise and require a TTL. Evidence that the CAP file's own
+severity/urgency/certainty disagree with reality more often than the list
+view's mapped codes would reopen which one should win — none observed as of
+18 Aug 2026.
+
 ---
 
 ## Things we got wrong, kept here on purpose

@@ -30,6 +30,21 @@ uvicorn alertmux.api:app --reload
 ```
 
 - `GET /alerts` — all current alerts. Optional `?authority=ng-nimet`.
+- `GET /alerts/{alert_id}/detail` — one alert's raw CAP file, merged in. SWIC's
+  list view (what `/alerts` serves) structurally omits `headline`,
+  `description`, `instruction`, `onset` and `expires` — `expires` matters
+  most, since without it a live warning can't be told from a lapsed one.
+  This route fetches the authority's original CAP 1.2 file for that one
+  alert and merges it into the record; where the CAP file states a named
+  severity/urgency/certainty, that value wins over the list view's
+  integer-code mapping (the raw code stays in `source_severity` etc.
+  regardless). **Not** part of `/alerts`'s default response — with ~2,200
+  alerts in force, fetching one CAP file per alert on every list poll would
+  be ~2,200 requests to WMO per fetch, so this is opt-in per alert, and
+  cached by `capurl` forever (a CAP file's path is content-addressed, so it
+  can never change once published — see `docs/DECISIONS.md` D16). Returns
+  **404** for an unknown `alert_id` and **502** if the CAP file can't be
+  fetched or parsed — never a silently empty or partial record.
 - `GET /health` — per-source health. Returns **HTTP 503** whenever the result
   is partial, so a standard monitor sees the degradation.
 - `GET /sources` — discovery: what alertmux covers and what it misses. Per-source
@@ -111,6 +126,7 @@ A real warning from the Nigerian Meteorological Agency, as alertmux returns it:
   "event": "THUNDERSTORMS",
   "headline": null,
   "description": null,
+  "instruction": null,
   "area_description": "Some states in Nigeria will be affected.",
   "severity": "Severe",
   "urgency": "Expected",
@@ -134,6 +150,7 @@ A real warning from the Nigerian Meteorological Agency, as alertmux returns it:
     "expires",
     "geometry",
     "headline",
+    "instruction",
     "onset"
   ]
 }
@@ -141,11 +158,12 @@ A real warning from the Nigerian Meteorological Agency, as alertmux returns it:
 
 Read it as: the authority stated a severity code of `3`, which is confirmed to
 mean CAP `Severe`, so both are reported. It supplied no headline, description,
-onset, expires or polygon — the SWIC list view carries none of them; they live
-only in the raw CAP file at
+instruction, onset, expires or polygon — the SWIC list view carries none of
+them; they live only in the raw CAP file at
 `https://severeweather.wmo.int/v2/cap-alerts/<raw_reference>`. Every one of
 those absences is named in `unavailable_fields`, which is exhaustive: if a
-field is `null`, its name is in that list.
+field is `null`, its name is in that list. `GET /alerts/{alert_id}/detail`
+fetches that CAP file and fills every one of those gaps it can.
 
 The `id` is derived from `raw_reference`, not from the GeoServer feature id —
 GeoServer's synthetic fids embed the *request* timestamp and change on every

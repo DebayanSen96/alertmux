@@ -279,3 +279,132 @@ def test_alerts_filter_does_not_poison_a_later_health_call():
     sources = client.get("/health").json()["sources"]
     assert [s["source_id"] for s in sources] == ["wmo-swic"]
     assert sources[0]["ok"] is True
+
+
+# ---------------------------------------------------------------------------
+# GET /alerts/{alert_id}/detail (issue #4)
+# ---------------------------------------------------------------------------
+
+from alertmux.adapters.swic import CapDetail, CapDetailError  # noqa: E402
+
+
+def _swic_alert(alert_id="wmo-swic:ng-nimet-en/a.xml", raw_reference="ng-nimet-en/a.xml"):
+    return NormalisedAlert(
+        id=alert_id,
+        event="THUNDERSTORMS",
+        area_description="Some states in Nigeria will be affected.",
+        source_severity="3",
+        severity="Severe",
+        provenance=Provenance(
+            authority="ng-nimet",
+            source_id="wmo-swic",
+            source_url="https://severeweather.wmo.int/g/wfs",
+            retrieved_at=NOW,
+            raw_reference=raw_reference,
+        ),
+        unavailable_fields=["headline", "description", "instruction", "onset", "expires"],
+    )
+
+
+class FakeSwicAdapter(FakeAdapter):
+    """A FakeAdapter that also supports fetch_detail, like SwicAdapter."""
+
+    def __init__(self, *args, detail=None, detail_error=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._detail = detail
+        self._detail_error = detail_error
+        self.detail_calls = 0
+
+    def fetch_detail(self, capurl):
+        self.detail_calls += 1
+        if self._detail_error is not None:
+            raise self._detail_error
+        return self._detail
+
+
+def _detail():
+    return CapDetail(
+        headline="THUNDERSTORMS OVER PARTS OF NIGERIA",
+        instruction="Take shelter.",
+        severity="Extreme",
+        urgency="Immediate",
+        certainty="Observed",
+        expires=datetime(2026, 8, 18, 5, 0, tzinfo=timezone.utc),
+        onset=datetime(2026, 8, 17, 18, 16, tzinfo=timezone.utc),
+    )
+
+
+def test_alert_detail_enriches_and_shrinks_unavailable_fields():
+    alert = _swic_alert()
+    client = _client([FakeSwicAdapter("wmo-swic", alerts=[alert], detail=_detail())])
+    body = client.get(f"/alerts/{alert.id}/detail").json()
+    assert body["headline"] == "THUNDERSTORMS OVER PARTS OF NIGERIA"
+    assert body["instruction"] == "Take shelter."
+    assert body["expires"] is not None
+    assert "headline" not in body["unavailable_fields"]
+    assert "expires" not in body["unavailable_fields"]
+
+
+def test_alert_detail_cap_severity_wins_over_list_view_code():
+    alert = _swic_alert()
+    client = _client([FakeSwicAdapter("wmo-swic", alerts=[alert], detail=_detail())])
+    body = client.get(f"/alerts/{alert.id}/detail").json()
+    assert body["severity"] == "Extreme"
+    assert body["source_severity"] == "3"
+
+
+def test_alert_detail_unknown_id_is_404():
+    client = _client([FakeSwicAdapter("wmo-swic", alerts=[_swic_alert()], detail=_detail())])
+    response = client.get("/alerts/does-not-exist/detail")
+    assert response.status_code == 404
+
+
+def test_alert_detail_cap_fetch_failure_is_a_clear_error_not_empty():
+    alert = _swic_alert()
+    client = _client([
+        FakeSwicAdapter(
+            "wmo-swic", alerts=[alert],
+            detail_error=CapDetailError("SWIC CAP detail fetch failed: 404"),
+        ),
+    ])
+    response = client.get(f"/alerts/{alert.id}/detail")
+    assert response.status_code == 502
+    assert "404" in response.json()["detail"]
+
+
+def test_alert_detail_non_swic_source_is_404():
+    alert = _dupe_alert("nws:1", "nws")
+    client = _client([FakeAdapter("nws", alerts=[alert])])
+    response = client.get(f"/alerts/{alert.id}/detail")
+    assert response.status_code == 404
+
+
+def test_alert_detail_resolves_raw_reference_not_the_alert_id():
+    """The endpoint must fetch by provenance.raw_reference (the capurl),
+    not by the alertmux-internal id -- CapDetail's cache and WMO's own
+    endpoint are both keyed by capurl. Caching itself is
+    SwicAdapter.fetch_detail's responsibility, exercised directly in
+    test_swic.py's test_fetch_detail_caches_and_never_fetches_twice.
+    """
+    alert = _swic_alert(alert_id="wmo-swic:ng-nimet-en/a.xml", raw_reference="ng-nimet-en/a.xml")
+    adapter = FakeSwicAdapter("wmo-swic", alerts=[alert], detail=_detail())
+    original_fetch_detail = adapter.fetch_detail
+    seen_capurls = []
+
+    def _spy(capurl):
+        seen_capurls.append(capurl)
+        return original_fetch_detail(capurl)
+
+    adapter.fetch_detail = _spy
+    client = _client([adapter])
+    client.get(f"/alerts/{alert.id}/detail")
+    assert seen_capurls == ["ng-nimet-en/a.xml"]
+
+
+def test_alerts_endpoint_unaffected_by_detail_route_existing():
+    """The default /alerts behaviour must stay cheap and unchanged."""
+    alert = _swic_alert()
+    client = _client([FakeSwicAdapter("wmo-swic", alerts=[alert], detail=_detail())])
+    body = client.get("/alerts").json()
+    assert body["alerts"][0]["headline"] is None
+    assert "headline" in body["alerts"][0]["unavailable_fields"]

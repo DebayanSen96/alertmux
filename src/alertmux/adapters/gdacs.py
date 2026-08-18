@@ -191,7 +191,7 @@ class GdacsAdapter:
     # module docstring) -- all four are always unavailable regardless
     # of what a particular record carries. A class attribute so
     # /sources can report it without running a fetch.
-    STRUCTURAL_GAPS: tuple[str, ...] = ("severity", "urgency", "certainty", "expires")
+    STRUCTURAL_GAPS: tuple[str, ...] = ("severity", "urgency", "certainty", "expires", "instruction")
 
     def __init__(self, client: httpx.Client | None = None, timeout: float = 30.0):
         self._client = client

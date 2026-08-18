@@ -39,6 +39,7 @@ class NormalisedAlert(BaseModel):
 
     headline: str | None = None
     description: str | None = None
+    instruction: str | None = None
     area_description: str | None = None
 
     # CAP named levels. None until a source's codes are confirmed.

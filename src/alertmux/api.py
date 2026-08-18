@@ -10,10 +10,11 @@ from __future__ import annotations
 import threading
 import time
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
 from alertmux.adapters import default_adapters
+from alertmux.adapters.swic import CapDetailError, enrich_with_detail
 from alertmux.query import AlertsResponse, collect
 from alertmux.registry import (
     AuthoritiesResponse,
@@ -21,7 +22,7 @@ from alertmux.registry import (
     build_authorities_response,
     get_register,
 )
-from alertmux.schema import DISCLAIMER
+from alertmux.schema import DISCLAIMER, NormalisedAlert
 from alertmux.sources import SourcesResponse, build_sources_response
 
 __all__ = ["app", "get_adapters", "clear_cache", "DISCLAIMER"]
@@ -106,6 +107,81 @@ def alerts(
             )
         response.alerts = matching
     return response
+
+
+@app.get("/alerts/{alert_id:path}/detail")
+def alert_detail(alert_id: str, adapters=Depends(get_adapters)) -> NormalisedAlert:
+    """Fetch one alert's raw CAP file and merge it in (issue #4).
+
+    SWIC's list view -- what `/alerts` serves -- structurally omits
+    `headline`, `description`, `instruction`, `onset` and `expires`;
+    `expires` matters most, since without it a future notifier cannot
+    tell a live warning from a lapsed one. Those fields live only in the
+    authority's original CAP file, which this route fetches on request
+    and merges into the alert already known from the current cached
+    fetch (see `alertmux.adapters.swic.enrich_with_detail`).
+
+    Deliberately **not** part of `/alerts`: with ~2,200 alerts in force,
+    fetching one CAP file per alert on every list poll would be ~2,200
+    requests to WMO per fetch. This route costs exactly one extra
+    request, per alert, on demand -- and that request is cached by
+    `capurl` forever afterwards, since a CAP file is immutable once
+    published (its path is content-addressed).
+
+    Two distinct failure modes, two distinct status codes: `alert_id`
+    not present in the current fetch is `404` (an unknown id, not an
+    empty detail); the id is known but its CAP file could not be
+    fetched or parsed is `502` (the *alert* is real, the *detail
+    request* to WMO failed). Neither case returns an empty or
+    partially-blank record that would read as "no detail exists" --
+    principle 4 applies here exactly as everywhere else in this project.
+
+    Only alerts sourced from `wmo-swic` carry a `raw_reference` shaped
+    like a SWIC `capurl`; an alert from any other source (or a future
+    SWIC record with `raw_reference` unset) has no CAP file this route
+    knows how to resolve, and is reported as `404` rather than silently
+    returning the un-enriched alert.
+
+    `{alert_id:path}` (not the plain `{alert_id}` string converter): an
+    alert id is `f"{source_id}:{capurl}"` and a `capurl` itself contains
+    `/` (e.g. `ng-nimet-en/2026/08/17/14/50/16-<hash>.xml`). The default
+    path converter stops at the first `/`, which would make most SWIC
+    ids unroutable.
+    """
+    result = _collect_shared(adapters)
+    alert = next((a for a in result.alerts if a.id == alert_id), None)
+    if alert is None:
+        raise HTTPException(
+            status_code=404, detail=f"No alert with id {alert_id!r} in the current fetch."
+        )
+
+    swic_adapter = next(
+        (
+            a
+            for a in adapters
+            if getattr(a, "source_id", None) == "wmo-swic" and hasattr(a, "fetch_detail")
+        ),
+        None,
+    )
+    if (
+        swic_adapter is None
+        or alert.provenance.source_id != "wmo-swic"
+        or not alert.provenance.raw_reference
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No CAP detail is available for source "
+                f"{alert.provenance.source_id!r}."
+            ),
+        )
+
+    try:
+        detail = swic_adapter.fetch_detail(alert.provenance.raw_reference)
+    except CapDetailError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return enrich_with_detail(alert, detail)
 
 
 @app.get("/health")

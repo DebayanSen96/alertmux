@@ -40,10 +40,13 @@ file itself and is stable across fetches.
 from __future__ import annotations
 
 import re
+import threading
 import time
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
 import httpx
+from pydantic import BaseModel
 
 from alertmux.adapters.base import RECORD_SAMPLE_CAP, FetchResult, RecordQuarantine
 from alertmux.schema import NormalisedAlert, Provenance
@@ -108,6 +111,239 @@ def _require_feature_collection(payload: dict) -> None:
         )
 
 
+CAP_DETAIL_URL_TEMPLATE = "https://severeweather.wmo.int/v2/cap-alerts/{capurl}"
+CAP_NS = {"cap": "urn:oasis:names:tc:emergency:cap:1.2"}
+_CAP_ROOT_TAG = "{urn:oasis:names:tc:emergency:cap:1.2}alert"
+
+
+class CapDetailError(RuntimeError):
+    """Raised when a single alert's CAP detail file cannot be fetched or
+    parsed (issue #4). Distinct from D3's per-record quarantine, which
+    applies to the *list* endpoint and skips one bad record among many:
+    `fetch_detail()` is a single explicit request for one alert, so a
+    failure here has nowhere quieter to go than the caller. The
+    `/alerts/{id}/detail` endpoint turns this into a clear HTTP error
+    rather than an empty record that would read as "no detail exists".
+    """
+
+
+class CapDetail(BaseModel):
+    """The fields a CAP 1.2 file supplies that SWIC's list view omits.
+
+    A separate model rather than reusing `NormalisedAlert` directly: the
+    CAP file describes one alert's *detail*, not a second alert, and
+    keeping the two shapes distinct makes `enrich_with_detail()`'s merge
+    rules explicit instead of implicit in field-by-field overwriting.
+    """
+
+    identifier: str | None = None
+    sender: str | None = None
+    language: str | None = None
+    headline: str | None = None
+    description: str | None = None
+    instruction: str | None = None
+    onset: datetime | None = None
+    expires: datetime | None = None
+    # Named CAP values, straight from the authority's own signed record
+    # -- authoritative over the list view's integer codes (DECISIONS.md).
+    severity: str | None = None
+    urgency: str | None = None
+    certainty: str | None = None
+    geometry: dict | None = None
+
+
+def _cap_text(elem: ET.Element, path: str) -> str | None:
+    child = elem.find(path, CAP_NS)
+    if child is None or child.text is None:
+        return None
+    text = child.text.strip()
+    return text or None
+
+
+def _cap_polygon_to_geojson(text: str) -> dict | None:
+    """CAP polygon text is space-separated "lat,lon" pairs, closed (first
+    point repeats last). GeoJSON wants [lon, lat]. A polygon that fails
+    to parse is dropped (returns None) rather than raising -- one
+    malformed geometry must not cost the rest of the detail record,
+    matching D3's quarantine spirit for a field that is decoration, not
+    identity.
+    """
+    try:
+        points = []
+        for pair in text.strip().split():
+            lat_str, _, lon_str = pair.partition(",")
+            points.append([float(lon_str), float(lat_str)])
+        if len(points) < 4:
+            return None
+        return {"type": "Polygon", "coordinates": [points]}
+    except (ValueError, IndexError):
+        return None
+
+
+def parse_cap_detail(payload: bytes | str) -> CapDetail:
+    """Parse one CAP 1.2 file (issue #4).
+
+    Real signed CAP files observed from this endpoint use a bound
+    `cap:` prefix for the namespace in some authorities and the bare
+    default namespace in others (both resolve to the same
+    `urn:oasis:names:tc:emergency:cap:1.2` URI) -- `ET`'s own namespace
+    resolution handles either, since lookups here use our own `cap:`
+    prefix bound to that URI, not the source document's chosen prefix.
+
+    A CAP file can carry more than one `<info>` block (observed:
+    parallel-language versions of the same alert). The English block is
+    preferred when present; otherwise the first block, since alertmux
+    relays verbatim and does not choose a "best" translation beyond
+    that.
+
+    An envelope that is not parseable XML, or carries no `<info>` block
+    at all, is a hard failure (mirrors every other adapter's envelope
+    check, D3) -- there is no "quiet" reading of a CAP file that failed
+    to parse.
+    """
+    try:
+        root = ET.fromstring(payload)
+    except ET.ParseError as exc:
+        raise ValueError(f"SWIC CAP detail is not parseable XML: {exc}") from exc
+
+    if root.tag != _CAP_ROOT_TAG:
+        raise ValueError(
+            f"SWIC CAP detail root is {root.tag!r}, not a CAP 1.2 <alert>"
+        )
+
+    infos = root.findall("cap:info", CAP_NS)
+    if not infos:
+        raise ValueError("SWIC CAP detail has no <cap:info> block")
+
+    info = next(
+        (i for i in infos if (_cap_text(i, "cap:language") or "").lower().startswith("en")),
+        infos[0],
+    )
+
+    geometry = None
+    polygon_text = _cap_text(info, "cap:area/cap:polygon")
+    if polygon_text:
+        geometry = _cap_polygon_to_geojson(polygon_text)
+
+    return CapDetail(
+        identifier=_cap_text(root, "cap:identifier"),
+        sender=_cap_text(root, "cap:sender"),
+        language=_cap_text(info, "cap:language"),
+        headline=_cap_text(info, "cap:headline"),
+        description=_cap_text(info, "cap:description"),
+        instruction=_cap_text(info, "cap:instruction"),
+        onset=_iso_utc(_cap_text(info, "cap:onset"), "onset"),
+        expires=_iso_utc(_cap_text(info, "cap:expires"), "expires"),
+        severity=_cap_text(info, "cap:severity"),
+        urgency=_cap_text(info, "cap:urgency"),
+        certainty=_cap_text(info, "cap:certainty"),
+        geometry=geometry,
+    )
+
+
+# CAP files are content-addressed: capurl embeds a hash of the file's
+# own content, so the same capurl can never resolve to different bytes
+# once published. That makes the cache unconditional -- no TTL, no
+# staleness check needed, because there is nothing to go stale. See
+# DECISIONS.md.
+_cap_cache_lock = threading.Lock()
+_cap_cache: dict[str, CapDetail] = {}
+
+
+def clear_cap_cache() -> None:
+    """Drop the cached CAP details. Used by tests; harmless in production."""
+    with _cap_cache_lock:
+        _cap_cache.clear()
+
+
+def fetch_cap_detail(
+    capurl: str, client: httpx.Client | None = None, timeout: float = 30.0
+) -> CapDetail:
+    """Fetch and parse one CAP file, cached by `capurl` forever (issue #4).
+
+    Deliberately separate from `SwicAdapter.fetch()`: with ~2,200 alerts
+    in force, fetching one CAP file per alert on every list poll would
+    be ~2,200 requests to WMO per fetch, which is far too expensive for
+    a list endpoint. This is only called explicitly, per alert, by
+    `SwicAdapter.fetch_detail()` and the `/alerts/{id}/detail` route.
+
+    Raises `CapDetailError` on any failure -- network, HTTP status, or
+    parse -- rather than returning `None`. A `None` return would be
+    ambiguous between "fetched fine, nothing there" (which cannot
+    happen; a CAP file always has an `<info>` block, see
+    `parse_cap_detail`) and "something went wrong", and principle 4
+    forbids exactly that kind of silent partial success.
+    """
+    with _cap_cache_lock:
+        cached = _cap_cache.get(capurl)
+    if cached is not None:
+        return cached
+
+    owns_client = client is None
+    http_client = client or httpx.Client(
+        timeout=timeout, headers={"User-Agent": USER_AGENT}
+    )
+    try:
+        response = http_client.get(CAP_DETAIL_URL_TEMPLATE.format(capurl=capurl))
+        response.raise_for_status()
+        detail = parse_cap_detail(response.content)
+    except Exception as exc:  # noqa: BLE001 - normalised into CapDetailError
+        raise CapDetailError(
+            f"SWIC CAP detail fetch failed for {capurl!r}: {type(exc).__name__}: {exc}"
+        ) from exc
+    finally:
+        if owns_client:
+            http_client.close()
+
+    with _cap_cache_lock:
+        _cap_cache[capurl] = detail
+    return detail
+
+
+def enrich_with_detail(alert: NormalisedAlert, detail: CapDetail) -> NormalisedAlert:
+    """Merge a fetched CAP detail into a list-view `NormalisedAlert`
+    (issue #4).
+
+    The CAP file is the authority's own signed record, so where it
+    states a named severity/urgency/certainty, that value wins over the
+    list view's integer-code mapping -- the integer itself is untouched
+    in `source_severity`/`source_urgency`/`source_certainty` either way
+    (see DECISIONS.md). Every other CAP field fills a gap the list view
+    structurally could not supply (`headline`, `description`,
+    `instruction`, `onset`, `expires`, and `geometry` when the list view
+    had none); nothing the list view already stated is overwritten with
+    a CAP value that might disagree with it, since neither record is
+    "more true" for fields both happen to carry.
+
+    Returns a new `NormalisedAlert` -- `alert` itself is never mutated,
+    matching D9's "shared state must not be mutated by one caller for
+    another" discipline now that a cached response could be enriched
+    more than once.
+    """
+    updated = alert.model_copy(
+        update={
+            "headline": alert.headline or detail.headline,
+            "description": alert.description or detail.description,
+            "instruction": alert.instruction or detail.instruction,
+            "onset": alert.onset or detail.onset,
+            "expires": alert.expires or detail.expires,
+            "geometry": alert.geometry or detail.geometry,
+            # The CAP file is authoritative (see docstring); it wins
+            # over the list view's mapped name whenever it states one.
+            "severity": detail.severity or alert.severity,
+            "urgency": detail.urgency or alert.urgency,
+            "certainty": detail.certainty or alert.certainty,
+        }
+    )
+    unavailable = sorted(
+        name
+        for name in NormalisedAlert.model_fields
+        if name not in {"id", "event", "provenance", "unavailable_fields"}
+        and getattr(updated, name) is None
+    )
+    return updated.model_copy(update={"unavailable_fields": unavailable})
+
+
 class SwicAdapter:
     """Fetches and normalises WMO SWIC effective warnings."""
 
@@ -121,7 +357,9 @@ class SwicAdapter:
     # onset/expires. A class attribute so /sources can report it
     # without running a fetch. See parse() for how it is combined with
     # per-record gaps.
-    STRUCTURAL_GAPS: tuple[str, ...] = ("onset", "expires", "headline", "description")
+    STRUCTURAL_GAPS: tuple[str, ...] = (
+        "onset", "expires", "headline", "description", "instruction",
+    )
 
     def __init__(
         self,
@@ -395,3 +633,13 @@ class SwicAdapter:
             invalid_samples=combined.invalid_samples,
             duplicate_count=duplicate_count,
         )
+
+    def fetch_detail(self, capurl: str) -> CapDetail:
+        """Fetch and parse one alert's raw CAP file (issue #4).
+
+        Never called from `fetch()` or `parse()` -- see the module
+        docstring and `fetch_cap_detail`'s. Opt-in, per alert, cached by
+        `capurl` forever. Raises `CapDetailError` on failure; see that
+        function's docstring for why this does not return `None`.
+        """
+        return fetch_cap_detail(capurl, client=self._client, timeout=self._timeout)

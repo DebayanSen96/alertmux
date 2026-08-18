@@ -56,7 +56,9 @@ def test_richer_record_is_preferred_and_reason_names_count():
     assert len(groups) == 1
     group = groups[0]
     assert group.preferred_id == "nws:1"
-    assert "12 of 13" in group.reason
+    # 14, not 13: schema.py gained `instruction` (issue #4), which
+    # _OPTIONAL_FIELDS counts alongside every other optional field.
+    assert "12 of 14" in group.reason
 
 
 def test_same_event_different_area_not_grouped():

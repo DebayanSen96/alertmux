@@ -32,6 +32,7 @@ from alertmux.schema import NormalisedAlert
 _OPTIONAL_FIELDS = (
     "headline",
     "description",
+    "instruction",
     "area_description",
     "severity",
     "urgency",

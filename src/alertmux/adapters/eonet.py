@@ -178,6 +178,7 @@ class EonetAdapter:
         "certainty",
         "expires",
         "onset",
+        "instruction",
     )
 
     def __init__(

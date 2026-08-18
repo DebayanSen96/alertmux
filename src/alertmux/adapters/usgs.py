@@ -59,6 +59,7 @@ class UsgsAdapter:
         "onset",
         "expires",
         "description",
+        "instruction",
     )
 
     def __init__(self, client: httpx.Client | None = None, timeout: float = 30.0):

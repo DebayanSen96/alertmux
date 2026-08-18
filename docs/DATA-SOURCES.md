@@ -101,9 +101,60 @@ Returns full **CAP 1.2**, digitally signed (`ds:Signature`), with namespaced tag
   <cap:headline>THUNDERSTORMS OVER PARTS OF NIGERIA</cap:headline>
 ```
 
-Not fetched in v0.1 — one request per alert is too expensive for a list endpoint. It
-is the natural source for `expires`, which the notifier will need. See
-`V0.2` issue 5 in the project backlog.
+Not fetched by `/alerts` — one request per alert is too expensive for a list
+endpoint. It is the natural source for `expires`, which the notifier will
+need. Fetched on request only (issue #4, 18 Aug 2026):
+`SwicAdapter.fetch_detail(capurl)` and `GET /alerts/{alert_id:path}/detail`,
+cached by `capurl` forever — the path is content-addressed (a hash of the
+file's own content), so the same `capurl` can never resolve to different
+bytes once published. See DECISIONS.md D16.
+
+Two real fetches (18 Aug 2026) confirm the shape:
+
+```xml
+<cap:alert xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
+<cap:identifier>IN-1787070151015041_43</cap:identifier>
+<cap:sender>IMD-Chennai</cap:sender>
+<cap:info>
+<cap:language>en-IN</cap:language>
+<cap:urgency>Expected</cap:urgency>
+<cap:severity>Moderate</cap:severity>
+<cap:certainty>Likely</cap:certainty>
+<cap:onset>2026-08-18T21:52:31+05:30</cap:onset>
+<cap:expires>2026-08-19T01:00:00+05:30</cap:expires>
+<cap:headline>Light to Moderate Rain with Thunderstorm...</cap:headline>
+<cap:description/>
+<cap:instruction>Please follow SDMA guidelines.</cap:instruction>
+</cap:info>
+</cap:alert>
+```
+
+(India NDMA, `tests/fixtures/swic_cap_detail.xml`.) Notes:
+
+- **Some authorities use the default namespace instead of a bound `cap:`
+  prefix** (observed: China CMA files declare
+  `xmlns="urn:oasis:names:tc:emergency:cap:1.2"` with unprefixed tags, e.g.
+  `<severity>` not `<cap:severity>`). Both resolve to the same namespace URI
+  and parse identically through `ElementTree`'s own namespace map — the
+  adapter's `cap:` prefix is ours, not the source document's.
+- **Fields live inside `<info>`, not directly on `<alert>`.** The excerpt
+  earlier in this section (the original recovery notes) showed severity/
+  urgency/etc. as if they were direct children of `<alert>` — that was a
+  simplification for the write-up, not the real structure. `parse_cap_detail`
+  reads `cap:info/cap:severity` etc.
+- **A CAP file can carry more than one `<info>` block** — observed on a
+  China CMA alert with parallel English and Chinese blocks. The adapter
+  prefers the one whose `<language>` starts with `en`, falling back to the
+  first block otherwise.
+- **`<cap:description/>` (empty) is real.** Parsed as `None`, not `""` — an
+  empty element is not a stated description.
+- **No inline `<cap:polygon>` observed** in ~40 live samples (18 Aug 2026);
+  one authority (`in-ndma`) instead links a polygon via a `<cap:parameter>`
+  named `"Polygon URL"` pointing at a separate NDMA endpoint, which this
+  project does not follow. `parse_cap_detail` supports an inline
+  `<cap:area><cap:polygon>` if one is ever observed, converting CAP's
+  `"lat,lon lat,lon ..."` text to GeoJSON, but this path is untested against
+  real data — treat it as provisional until a live sample exercises it.
 
 > Finding this cost several rounds: `/v2/cap-alerts/rss.xml` 404s, and that single
 > 404 was taken as evidence the whole directory did not exist. **Probe a directory

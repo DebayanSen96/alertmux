@@ -86,7 +86,7 @@ class NwsAdapter:
     # record observed on this feed supplies headline, description,
     # sent, onset and expires. Empty, not absent: that is correct and
     # meaningful, and /sources reports it as such without a fetch.
-    STRUCTURAL_GAPS: tuple[str, ...] = ()
+    STRUCTURAL_GAPS: tuple[str, ...] = ("instruction",)
 
     def __init__(self, client: httpx.Client | None = None, timeout: float = 30.0):
         self._client = client
