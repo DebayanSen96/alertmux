@@ -1,7 +1,8 @@
 """Adapter registry.
 
-Adding a source means adding one module here and one entry below.
-Nothing else changes.
+Adding a source means one new module plus three edits in this file:
+the import, the __all__ entry, and the default_adapters() return.
+See the "Adding a source" section of the README.
 """
 
 from alertmux.adapters.swic import SwicAdapter
