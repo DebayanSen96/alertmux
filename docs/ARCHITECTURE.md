@@ -74,6 +74,7 @@ class FetchResult(BaseModel):
     returned: int | None = None
     invalid_count: int = 0
     invalid_samples: list[str] = []
+    duplicate_count: int = 0
 ```
 
 `fetch()` catches broadly and returns `ok=False`. This is what stops one broken feed
@@ -119,6 +120,16 @@ Collapsing that distinction was explicitly ruled out — see D3 in `DECISIONS.md
 now follows: the source answered correctly and the alerts present are real, but
 there were more (`truncated`) or some were dropped as unparseable (`invalid_count`).
 Either way it is a right answer that is incomplete.
+
+**Pagination (issue #3, D4).** `fetch()` loops on `startIndex` rather than
+requesting one capped page: it keeps requesting further pages while the last
+one came back filled to `maxFeatures`, or `numberMatched` says the cumulative
+offset is still short of the total, bounded by `max_pages` (default 20).
+Hitting that ceiling — or a page contributing zero records not already
+seen — stops the loop with `truncated` left True; a full round of pagination
+that reaches a genuinely short final page leaves it False. Records are
+deduplicated across pages by id, and a collapsed duplicate is counted in
+`duplicate_count` rather than silently dropped or double-counted.
 
 ## adapters/swic.py — three defences
 

@@ -33,6 +33,10 @@ class SourceStatus(BaseModel):
     # answered, but incompletely.
     invalid_count: int = 0
     invalid_samples: list[str] = Field(default_factory=list)
+    # See FetchResult.duplicate_count -- a paginating adapter's own
+    # cross-page duplicates, never a claim about cross-source overlap
+    # (that is dedupe.py's job).
+    duplicate_count: int = 0
 
 
 class AlertsResponse(BaseModel):
@@ -89,6 +93,7 @@ def collect(adapters) -> AlertsResponse:
                 returned=result.returned,
                 invalid_count=result.invalid_count,
                 invalid_samples=result.invalid_samples,
+                duplicate_count=result.duplicate_count,
             )
         )
 

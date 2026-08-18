@@ -47,6 +47,14 @@ class FetchResult(BaseModel):
     # of their own.
     invalid_samples: list[str] = Field(default_factory=list)
 
+    # A paginating adapter (see adapters/swic.py) can see the same
+    # record twice if the server's ordering is unstable between
+    # requests. Deduplicated by id before entering `alerts`, and
+    # counted here rather than silently -- a duplicate never inflates
+    # the alert count, but disappearing without a trace would still be
+    # the kind of silent adjustment principle 4 forbids.
+    duplicate_count: int = 0
+
 
 @runtime_checkable
 class Adapter(Protocol):

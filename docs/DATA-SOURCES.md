@@ -46,6 +46,13 @@ Notes that cost time to learn:
   re-notified.
 - **Always send `maxFeatures`.** An unfiltered query on the raw layer exceeded 24MB
   and timed out at 60s.
+- **`startIndex` pagination works.** GeoServer WFS 1.1.0 honours `startIndex` on
+  this endpoint; `SwicAdapter.fetch()` (18 Aug 2026, issue #3) loops on it,
+  requesting a further page whenever the previous one came back filled to
+  `maxFeatures` or `numberMatched` says more remain, up to a `max_pages` ceiling.
+  Before this, v0.1 only labelled truncation at a single `maxFeatures=3000`
+  cap — safe while live counts sat around 2,100–2,300, but not once a severe
+  day pushes past it. See DECISIONS.md D4.
 - A second layer, `local_postgis:postgis_geojsons` on `/f/wfs`, carries geometry and
   is filtered by `row_type` (`POLYGON` held 4,732 features; `POINT` 96; `LINE` and
   `CIRCLE` were empty). `effective_warning_view` returns `geometry: null`.

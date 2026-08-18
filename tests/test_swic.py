@@ -426,3 +426,154 @@ def test_short_page_with_unknown_matched_is_not_truncated():
     assert result.ok is True
     assert result.truncated is False
     assert result.matched is None
+
+
+def _page(features: list[dict], matched, returned) -> dict:
+    return {
+        "type": "FeatureCollection",
+        "numberMatched": matched,
+        "numberReturned": returned,
+        "features": features,
+    }
+
+
+@respx.mock
+def test_two_page_fetch_assembles_all_records():
+    """A first page filled to maxFeatures must trigger a second request,
+    and the records from both pages must all end up in the result."""
+    page1 = _page(
+        [_feature("f1", "xx-test-en/a.xml"), _feature("f2", "xx-test-en/b.xml")],
+        matched=3, returned=2,
+    )
+    page2 = _page([_feature("f3", "xx-test-en/c.xml")], matched=3, returned=1)
+    route = respx.get(SwicAdapter.URL).mock(
+        side_effect=[httpx.Response(200, json=page1), httpx.Response(200, json=page2)]
+    )
+    result = SwicAdapter(max_features=2).fetch()
+    assert result.ok is True
+    assert {a.provenance.raw_reference for a in result.alerts} == {
+        "xx-test-en/a.xml", "xx-test-en/b.xml", "xx-test-en/c.xml",
+    }
+    assert len(route.calls) == 2
+
+
+@respx.mock
+def test_third_page_not_requested_when_second_is_short():
+    """The second page came back short of maxFeatures with numberMatched
+    satisfied -- that is exhaustion, and a third request must never fire."""
+    page1 = _page(
+        [_feature("f1", "xx-test-en/a.xml"), _feature("f2", "xx-test-en/b.xml")],
+        matched=3, returned=2,
+    )
+    page2 = _page([_feature("f3", "xx-test-en/c.xml")], matched=3, returned=1)
+    route = respx.get(SwicAdapter.URL).mock(
+        side_effect=[httpx.Response(200, json=page1), httpx.Response(200, json=page2)]
+    )
+    result = SwicAdapter(max_features=2).fetch()
+    assert len(route.calls) == 2
+    assert result.truncated is False
+
+
+@respx.mock
+def test_max_pages_ceiling_leaves_truncated_true():
+    """An endlessly-full feed (or one whose startIndex is not being
+    honoured) must never be polled forever. Hitting the ceiling before
+    exhaustion keeps truncated True as the "we stopped early" signal."""
+    counter = {"n": 0}
+
+    def _respond(request):
+        counter["n"] += 1
+        n = counter["n"]
+        feature = _feature(f"f{n}", f"xx-test-en/{n}.xml")
+        return httpx.Response(200, json=_page([feature], matched="unknown", returned=1))
+
+    route = respx.get(SwicAdapter.URL).mock(side_effect=_respond)
+    result = SwicAdapter(max_features=1, max_pages=3).fetch()
+    assert result.ok is True
+    assert result.truncated is True
+    assert len(route.calls) == 3
+    assert len(result.alerts) == 3
+
+
+@respx.mock
+def test_unknown_number_matched_still_paginates_via_returned_rule():
+    """Belt-and-braces (D4): numberMatched "unknown" must not stop the
+    adapter trusting a short page falsely -- returned >= max_features
+    alone must keep requesting the next page."""
+    page1 = _page(
+        [_feature("f1", "xx-test-en/a.xml"), _feature("f2", "xx-test-en/b.xml")],
+        matched="unknown", returned=2,
+    )
+    page2 = _page([_feature("f3", "xx-test-en/c.xml")], matched="unknown", returned=1)
+    route = respx.get(SwicAdapter.URL).mock(
+        side_effect=[httpx.Response(200, json=page1), httpx.Response(200, json=page2)]
+    )
+    result = SwicAdapter(max_features=2).fetch()
+    assert len(route.calls) == 2
+    assert len(result.alerts) == 3
+    assert result.matched is None
+    assert result.truncated is False
+
+
+@respx.mock
+def test_duplicate_ids_across_pages_are_collapsed_and_counted():
+    """If the server's ordering is unstable, the same capurl can appear
+    on two pages. It must not be counted twice, and the collapse must
+    be visible in duplicate_count rather than silent."""
+    page1 = _page(
+        [_feature("f1", "xx-test-en/a.xml"), _feature("f2", "xx-test-en/b.xml")],
+        matched=3, returned=2,
+    )
+    # f2 repeats (same capurl -> same id) alongside one genuinely new record.
+    page2 = _page(
+        [_feature("f2b", "xx-test-en/b.xml"), _feature("f3", "xx-test-en/c.xml")],
+        matched=3, returned=1,
+    )
+    respx.get(SwicAdapter.URL).mock(
+        side_effect=[httpx.Response(200, json=page1), httpx.Response(200, json=page2)]
+    )
+    result = SwicAdapter(max_features=2).fetch()
+    assert {a.provenance.raw_reference for a in result.alerts} == {
+        "xx-test-en/a.xml", "xx-test-en/b.xml", "xx-test-en/c.xml",
+    }
+    assert len(result.alerts) == 3
+    assert result.duplicate_count == 1
+
+
+@respx.mock
+def test_quarantine_still_works_on_second_page():
+    """D3's per-record quarantine must survive across pages: a malformed
+    record on page two is skipped and counted, not fatal to the fetch."""
+    page1 = _page(
+        [_feature("f1", "xx-test-en/a.xml"), _feature("f2", "xx-test-en/b.xml")],
+        matched=3, returned=2,
+    )
+    bad = _feature("f3", None)
+    page2 = _page([bad], matched=3, returned=1)
+    respx.get(SwicAdapter.URL).mock(
+        side_effect=[httpx.Response(200, json=page1), httpx.Response(200, json=page2)]
+    )
+    result = SwicAdapter(max_features=2).fetch()
+    assert result.ok is True
+    assert len(result.alerts) == 2
+    assert result.invalid_count == 1
+    assert any("capurl" in sample for sample in result.invalid_samples)
+
+
+def test_max_pages_ceiling_is_a_reasonable_default():
+    assert SwicAdapter()._max_pages == 20
+
+
+def test_one_page_still_works_no_second_request():
+    """Constraint 5: if the first page returns everything, a second
+    request must never be issued."""
+    import respx as _respx
+
+    with _respx.mock:
+        route = _respx.get(SwicAdapter.URL).mock(
+            return_value=httpx.Response(200, json=FIXTURE)
+        )
+        result = SwicAdapter().fetch()
+    assert len(route.calls) == 1
+    assert len(result.alerts) == 3
+    assert result.truncated is False

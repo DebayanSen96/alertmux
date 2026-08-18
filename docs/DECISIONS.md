@@ -122,8 +122,38 @@ server declines to say. The belt-and-braces rule is therefore also applied:
 `returned >= max_features` sets `truncated` on its own, so a page filled to the
 cap is never reported as complete no matter what the server claimed it matched.
 
-**Longer term.** v0.1 *labels* truncation; it does not paginate. Real `startIndex`
-pagination is the proper remedy.
+**Superseded 18 Aug 2026 (issue #3) — real `startIndex` pagination shipped.**
+`fetch()` now loops on `startIndex`, requesting a further page whenever the
+current page came back filled to `maxFeatures` (the belt-and-braces rule
+above, unchanged) or `numberMatched` says the cumulative offset is still
+short of the total. The loop is bounded by `max_pages` (default 20): hitting
+that ceiling before the server is confirmed exhausted leaves `truncated`
+True, exactly as the old "just label it" behaviour did — the difference is
+that a fetch under the ceiling now actually retrieves the extra warnings
+instead of only announcing that some were missing. The loop also stops
+early, with `truncated` True, if a page contributes zero records not
+already seen: a paginating GeoServer can theoretically reorder results
+between requests, and no forward progress means no amount of further
+requesting will help. Records are deduplicated across pages by id (derived
+from `capurl`, D2) rather than trusted to arrive exactly once; a collapsed
+duplicate is counted in `FetchResult.duplicate_count`/`SourceStatus.duplicate_count`,
+never silently dropped. Per-record quarantine (D3) applies independently on
+every page and accumulates into the same `invalid_count`/`invalid_samples`.
+`FetchResult.returned` changed meaning accordingly: it now reports the
+number of distinct valid alerts assembled across all pages, not one page's
+raw `numberReturned` — the latter stopped being a single number once there
+could be more than one page.
+
+**What was true in v0.1, kept for the record.** v0.1 only *labelled*
+truncation: it requested a single page capped at `maxFeatures`, and if the
+server had more warnings in force than it returned, the response still set
+`truncated` — but the extra warnings were never fetched. That was tolerable
+while live counts (~2,100–2,300) sat safely under the 3,000 cap, but a
+Northern-Hemisphere severe-weather day plus a US NOAA outbreak was always
+going to exceed it, and dropping alerts is least acceptable at exactly that
+moment. Real pagination is the fix; this entry's original text is preserved
+above this note as the reasoning that made the gap visible before it was
+closed.
 
 ## D5 — The disclaimer lives in response bodies, not only in the OpenAPI description
 
