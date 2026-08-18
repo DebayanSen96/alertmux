@@ -1,8 +1,9 @@
 """Aggregation across adapters.
 
 One source being down must never take down a response. Whenever any
-source fails, the response is labelled partial — returning incomplete
-hazard data as if it were complete is the worst thing this system can do.
+source fails — or returns a truncated answer — the response is labelled
+partial: returning incomplete hazard data as if it were complete is the
+worst thing this system can do.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 
-from alertmux.schema import NormalisedAlert
+from alertmux.schema import DISCLAIMER, NormalisedAlert
 
 
 class SourceStatus(BaseModel):
@@ -20,6 +21,10 @@ class SourceStatus(BaseModel):
     error: str | None = None
     latency_ms: int | None = None
     alert_count: int = 0
+    # The source answered, but with fewer alerts than it holds.
+    truncated: bool = False
+    matched: int | None = None
+    returned: int | None = None
 
 
 class AlertsResponse(BaseModel):
@@ -27,6 +32,10 @@ class AlertsResponse(BaseModel):
     sources: list[SourceStatus] = Field(default_factory=list)
     partial: bool = False
     retrieved_at: datetime
+    # Populated only when a requested ?authority= matched nothing, so a
+    # typo is distinguishable from a genuinely quiet day.
+    available_authorities: list[str] | None = None
+    disclaimer: str = DISCLAIMER
 
 
 def collect(adapters) -> AlertsResponse:
@@ -55,12 +64,16 @@ def collect(adapters) -> AlertsResponse:
                 error=result.error,
                 latency_ms=result.latency_ms,
                 alert_count=len(result.alerts),
+                truncated=result.truncated,
+                matched=result.matched,
+                returned=result.returned,
             )
         )
 
     return AlertsResponse(
         alerts=alerts,
         sources=statuses,
-        partial=any(not s.ok for s in statuses),
+        # A truncated source is incomplete data even though ok is True.
+        partial=any((not s.ok) or s.truncated for s in statuses),
         retrieved_at=datetime.now(tz=timezone.utc),
     )
