@@ -26,6 +26,14 @@ class FetchResult(BaseModel):
     retrieved_at: datetime
     latency_ms: int
 
+    # The source had more alerts in force than it returned. ok stays True
+    # — the alerts present are correct — but the answer is incomplete, so
+    # this must reach AlertsResponse.partial. Silent partial success is a
+    # bug, and a dropped warning is the worst kind of missing data.
+    truncated: bool = False
+    matched: int | None = None
+    returned: int | None = None
+
 
 @runtime_checkable
 class Adapter(Protocol):

@@ -5,6 +5,10 @@ expiry and no CAP severity. Both are recorded as unavailable rather than
 invented. The `alert` field (PAGER level: green/yellow/orange/red) is kept
 as a source-native value only — it is not CAP severity and must not be
 mapped to one.
+
+The feed also carries non-earthquake events (`quarry blast`, `explosion`,
+`ice quake`, `sonic boom`, `mining explosion`), so `type` is never
+defaulted to "earthquake" — a missing type is a malformed feature.
 """
 
 from __future__ import annotations
@@ -18,12 +22,23 @@ from alertmux.adapters.base import FetchResult
 from alertmux.schema import NormalisedAlert, Provenance
 
 AUTHORITY = "us-usgs"
+USER_AGENT = "alertmux/0.1 (+https://github.com/ADJ-HUB1/alertmux)"
 
 
 def _epoch_ms(value: int | None) -> datetime | None:
     if value is None:
         return None
     return datetime.fromtimestamp(value / 1000, tz=timezone.utc)
+
+
+def _require_feature_collection(payload: dict) -> None:
+    """A 200 that is not a FeatureCollection is an error, not a quiet hour."""
+    if not isinstance(payload, dict) or payload.get("type") != "FeatureCollection" \
+            or "features" not in payload:
+        raise ValueError(
+            "USGS response is not a GeoJSON FeatureCollection: "
+            f"{repr(payload)[:400]}"
+        )
 
 
 class UsgsAdapter:
@@ -40,35 +55,61 @@ class UsgsAdapter:
         self._timeout = timeout
 
     def parse(self, payload: dict, retrieved_at: datetime) -> list[NormalisedAlert]:
+        _require_feature_collection(payload)
+
         alerts: list[NormalisedAlert] = []
 
-        for feature in payload.get("features", []):
-            props = feature.get("properties") or {}
-            unavailable: list[str] = []
+        for feature in payload["features"]:
+            props = feature.get("properties")
+            if not props:
+                raise ValueError(
+                    f"USGS feature {feature.get('id')!r} has no properties"
+                )
+
+            feature_id = feature.get("id")
+            if not feature_id:
+                raise ValueError("USGS feature has no id")
+
+            # The feed carries quarry blasts and explosions too. Calling
+            # one of those an earthquake would be an invented fact.
+            event = props.get("type")
+            if not event:
+                raise ValueError(
+                    f"USGS feature {feature_id!r} has no type"
+                )
 
             # PAGER alert level, not CAP severity. Kept source-native only.
             pager = props.get("alert")
-            source_severity = str(pager) if pager else None
-            if source_severity is None:
-                unavailable.append("severity")
 
-            # USGS reports observed events; these concepts do not apply.
-            unavailable.extend(["urgency", "certainty", "onset", "expires"])
+            fields = {
+                "headline": props.get("title"),
+                # USGS has no description field. None means "the source
+                # has none" here exactly as it does for SWIC.
+                "description": None,
+                "area_description": props.get("place"),
+                # USGS states no CAP severity/urgency/certainty at all.
+                "severity": None,
+                "urgency": None,
+                "certainty": None,
+                "source_severity": str(pager) if pager else None,
+                "source_urgency": None,
+                "source_certainty": None,
+                "sent": _epoch_ms(props.get("time")),
+                # Observed events: these concepts do not apply.
+                "onset": None,
+                "expires": None,
+                "geometry": feature.get("geometry"),
+            }
 
-            description = props.get("title")
-            if description is None:
-                unavailable.append("description")
+            structural = ("urgency", "certainty", "onset", "expires", "description")
+            unavailable = sorted(
+                set(structural) | {k for k, v in fields.items() if v is None}
+            )
 
             alerts.append(
                 NormalisedAlert(
-                    id=f"{self.source_id}:{feature.get('id')}",
-                    event=props.get("type") or "earthquake",
-                    headline=props.get("title"),
-                    description=description,
-                    area_description=props.get("place"),
-                    source_severity=source_severity,
-                    sent=_epoch_ms(props.get("time")),
-                    geometry=feature.get("geometry"),
+                    id=f"{self.source_id}:{feature_id}",
+                    event=event,
                     provenance=Provenance(
                         authority=AUTHORITY,
                         source_id=self.source_id,
@@ -77,6 +118,7 @@ class UsgsAdapter:
                         raw_reference=props.get("url"),
                     ),
                     unavailable_fields=unavailable,
+                    **fields,
                 )
             )
 
@@ -85,7 +127,9 @@ class UsgsAdapter:
     def fetch(self) -> FetchResult:
         retrieved_at = datetime.now(tz=timezone.utc)
         started = time.monotonic()
-        client = self._client or httpx.Client(timeout=self._timeout)
+        client = self._client or httpx.Client(
+            timeout=self._timeout, headers={"User-Agent": USER_AGENT}
+        )
 
         try:
             response = client.get(self.URL)

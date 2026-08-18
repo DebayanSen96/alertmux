@@ -12,6 +12,14 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+# Stated in the body of every API response, not only in the OpenAPI
+# description, so any downstream consumer (MCP server, notifier)
+# inherits it automatically.
+DISCLAIMER = (
+    "Relayed from official alerting authorities. Not a substitute for "
+    "official warnings from the issuing authority."
+)
+
 
 class Provenance(BaseModel):
     """Where an alert came from. Mandatory on every alert."""
