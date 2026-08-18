@@ -41,7 +41,7 @@ from datetime import datetime, timezone
 
 import httpx
 
-from alertmux.adapters.base import FetchResult
+from alertmux.adapters.base import FetchResult, RecordQuarantine
 from alertmux.schema import NormalisedAlert, Provenance
 
 USER_AGENT = "alertmux/0.1 (+https://github.com/jamiusaliu/alertmux)"
@@ -144,92 +144,104 @@ class SwicAdapter:
         return params
 
     def parse(self, payload: dict, retrieved_at: datetime) -> list[NormalisedAlert]:
+        """Parse the FeatureCollection. An envelope that is not a valid
+        FeatureCollection is a hard failure (see
+        `_require_feature_collection`) -- the source is broken. A single
+        feature that cannot be parsed is quarantined instead: it is
+        skipped, counted, and sampled onto the returned list's
+        `.invalid_count` / `.invalid_samples` (see `RecordQuarantine`),
+        never allowed to discard every other feature in the response
+        (DECISIONS.md D3).
+        """
         _require_feature_collection(payload)
 
-        alerts: list[NormalisedAlert] = []
+        alerts = RecordQuarantine()
 
         for feature in payload["features"]:
-            props = feature.get("properties")
-            if not props:
-                raise ValueError(
-                    f"SWIC feature {feature.get('id')!r} has no properties"
+            try:
+                props = feature.get("properties")
+                if not props:
+                    raise ValueError(
+                        f"SWIC feature {feature.get('id')!r} has no properties"
+                    )
+
+                event = props.get("event")
+                if not event:
+                    raise ValueError(
+                        f"SWIC feature {feature.get('id')!r} has no event"
+                    )
+
+                capurl = props.get("capurl")
+                if not capurl:
+                    raise ValueError(
+                        f"SWIC feature {feature.get('id')!r} has no capurl; "
+                        "the synthetic GeoServer fid is not a stable identity"
+                    )
+
+                def _code(key: str) -> str | None:
+                    value = props.get(key)
+                    return str(value) if value is not None else None
+
+                def _named(key: str, table: dict[int, str]) -> str | None:
+                    """Map a code only if it was verified. Never guess.
+
+                    SWIC emits s/u/c as JSON numbers, but some authorities send
+                    them as digit strings ("3" instead of 3). A string key
+                    against the int table misses silently and leaves the named
+                    field null, so coerce digit strings to int before lookup.
+                    Genuinely unmappable values (None, non-digit strings, codes
+                    outside the verified table) still fall through to None and
+                    land in unavailable_fields exactly as before.
+                    """
+                    raw = props.get(key)
+                    if isinstance(raw, str) and raw.isascii() and raw.isdigit():
+                        raw = int(raw)
+                    return table.get(raw)
+
+                # The WFS list view carries no headline and no description;
+                # both live only in the CAP file. `rlink` is a path to a
+                # RELATED CAP file and is not a description of this alert.
+                fields = {
+                    "headline": None,
+                    "description": None,
+                    "area_description": props.get("areadesc"),
+                    "severity": _named("s", SEVERITY),
+                    "urgency": _named("u", URGENCY),
+                    "certainty": _named("c", CERTAINTY),
+                    "source_severity": _code("s"),
+                    "source_urgency": _code("u"),
+                    "source_certainty": _code("c"),
+                    "sent": _iso_utc(props.get("sent"), "sent"),
+                    # onset/expires live in the CAP file, not this list view.
+                    "onset": None,
+                    "expires": None,
+                    "geometry": feature.get("geometry"),
+                }
+
+                # Unioned with every optional field that came back None, so
+                # the list is exhaustive by construction rather than by
+                # remembering to append.
+                unavailable = sorted(
+                    set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None}
                 )
 
-            event = props.get("event")
-            if not event:
-                raise ValueError(
-                    f"SWIC feature {feature.get('id')!r} has no event"
+                alerts.append(
+                    NormalisedAlert(
+                        id=f"{self.source_id}:{capurl}",
+                        event=event,
+                        provenance=Provenance(
+                            authority=_authority_from_capurl(capurl),
+                            source_id=self.source_id,
+                            source_url=self.URL,
+                            retrieved_at=retrieved_at,
+                            raw_reference=capurl,
+                        ),
+                        unavailable_fields=unavailable,
+                        **fields,
+                    )
                 )
-
-            capurl = props.get("capurl")
-            if not capurl:
-                raise ValueError(
-                    f"SWIC feature {feature.get('id')!r} has no capurl; "
-                    "the synthetic GeoServer fid is not a stable identity"
-                )
-
-            def _code(key: str) -> str | None:
-                value = props.get(key)
-                return str(value) if value is not None else None
-
-            def _named(key: str, table: dict[int, str]) -> str | None:
-                """Map a code only if it was verified. Never guess.
-
-                SWIC emits s/u/c as JSON numbers, but some authorities send
-                them as digit strings ("3" instead of 3). A string key
-                against the int table misses silently and leaves the named
-                field null, so coerce digit strings to int before lookup.
-                Genuinely unmappable values (None, non-digit strings, codes
-                outside the verified table) still fall through to None and
-                land in unavailable_fields exactly as before.
-                """
-                raw = props.get(key)
-                if isinstance(raw, str) and raw.isascii() and raw.isdigit():
-                    raw = int(raw)
-                return table.get(raw)
-
-            # The WFS list view carries no headline and no description;
-            # both live only in the CAP file. `rlink` is a path to a
-            # RELATED CAP file and is not a description of this alert.
-            fields = {
-                "headline": None,
-                "description": None,
-                "area_description": props.get("areadesc"),
-                "severity": _named("s", SEVERITY),
-                "urgency": _named("u", URGENCY),
-                "certainty": _named("c", CERTAINTY),
-                "source_severity": _code("s"),
-                "source_urgency": _code("u"),
-                "source_certainty": _code("c"),
-                "sent": _iso_utc(props.get("sent"), "sent"),
-                # onset/expires live in the CAP file, not this list view.
-                "onset": None,
-                "expires": None,
-                "geometry": feature.get("geometry"),
-            }
-
-            # Unioned with every optional field that came back None, so
-            # the list is exhaustive by construction rather than by
-            # remembering to append.
-            unavailable = sorted(
-                set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None}
-            )
-
-            alerts.append(
-                NormalisedAlert(
-                    id=f"{self.source_id}:{capurl}",
-                    event=event,
-                    provenance=Provenance(
-                        authority=_authority_from_capurl(capurl),
-                        source_id=self.source_id,
-                        source_url=self.URL,
-                        retrieved_at=retrieved_at,
-                        raw_reference=capurl,
-                    ),
-                    unavailable_fields=unavailable,
-                    **fields,
-                )
-            )
+            except Exception as exc:  # noqa: BLE001 - one bad record is quarantined, not fatal
+                alerts.quarantine(exc)
 
         return alerts
 
@@ -280,4 +292,6 @@ class SwicAdapter:
             truncated=truncated,
             matched=matched,
             returned=returned,
+            invalid_count=alerts.invalid_count,
+            invalid_samples=alerts.invalid_samples,
         )

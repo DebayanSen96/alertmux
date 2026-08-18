@@ -129,11 +129,49 @@ def _collection(*features) -> dict:
 
 def test_event_type_is_never_defaulted_to_earthquake():
     """The feed also emits quarry blast, explosion, ice quake and sonic
-    boom. Defaulting would assert a quarry blast was an earthquake."""
-    with pytest.raises(ValueError, match="no type"):
-        UsgsAdapter().parse(_collection(_feature(type=_ABSENT)), NOW)
-    with pytest.raises(ValueError, match="no type"):
-        UsgsAdapter().parse(_collection(_feature(type="")), NOW)
+    boom. Defaulting would assert a quarry blast was an earthquake.
+    D3: a missing type is a malformed record and is quarantined, not
+    allowed to abort the whole fetch."""
+    alerts = UsgsAdapter().parse(_collection(_feature(type=_ABSENT)), NOW)
+    assert alerts == []
+    assert alerts.invalid_count == 1
+    assert any("no type" in sample for sample in alerts.invalid_samples)
+
+    alerts = UsgsAdapter().parse(_collection(_feature(type="")), NOW)
+    assert alerts == []
+    assert alerts.invalid_count == 1
+    assert any("no type" in sample for sample in alerts.invalid_samples)
+
+
+def test_one_malformed_feature_among_valid_ones_is_quarantined_not_fatal():
+    good1 = _feature()
+    bad = _feature(type=_ABSENT)
+    good2 = dict(_feature(), id="ok2")
+    alerts = UsgsAdapter().parse(_collection(good1, bad, good2), NOW)
+    assert len(alerts) == 2
+    assert alerts.invalid_count == 1
+
+
+def test_all_features_malformed_yields_empty_list_and_full_invalid_count():
+    bad1 = _feature(type=_ABSENT)
+    bad2 = dict(_feature(type=_ABSENT), id="bad2")
+    alerts = UsgsAdapter().parse(_collection(bad1, bad2), NOW)
+    assert alerts == []
+    assert alerts.invalid_count == 2
+
+
+@respx.mock
+def test_fetch_quarantines_one_bad_record_and_still_returns_the_rest():
+    good1 = _feature()
+    bad = _feature(type=_ABSENT)
+    good2 = dict(_feature(), id="ok2")
+    payload = _collection(good1, bad, good2)
+    respx.get(UsgsAdapter.URL).mock(return_value=httpx.Response(200, json=payload))
+    result = UsgsAdapter().fetch()
+    assert result.ok is True
+    assert len(result.alerts) == 2
+    assert result.invalid_count == 1
+    assert len(result.invalid_samples) == 1
 
 
 def test_non_earthquake_event_type_passes_through_verbatim():

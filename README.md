@@ -36,8 +36,10 @@ uvicorn alertmux.api:app --reload
   identity, structural gaps, authorities actually seen, and `hazard_coverage` /
   `uncovered_hazards` (a heuristic keyword classification — see `sources.py`).
 
-Any response where a source failed — or returned fewer alerts than it holds —
-sets `partial: true`. Incomplete results are always labelled.
+Any response where a source failed, returned fewer alerts than it holds, or
+quarantined one or more unparseable records sets `partial: true`. Incomplete
+results are always labelled — `sources[].invalid_count` and `invalid_samples`
+say how many records were dropped and why.
 
 With `?authority=` applied, `sources[].alert_count` describes the **whole
 fetch** and will not equal `len(alerts)`. Source health is about the fetch,
@@ -151,9 +153,17 @@ fetch, so they cannot be used as a deduplication key.
   never observed stays `null` rather than being guessed. The raw value is
   always preserved in `source_severity` / `source_urgency` /
   `source_certainty`, even when a mapping exists.
-- **Malformed input fails loudly.** A feature missing an identity, an event
-  type, or a timezone on its timestamp raises rather than being defaulted.
-  The adapter turns that into `ok=false`, never into a plausible guess.
+- **A malformed record is quarantined, never defaulted.** A feature missing
+  an identity, an event type, or a timezone on its timestamp is skipped and
+  counted rather than guessed at or allowed to discard every other record in
+  the same response — one bad SWIC feature out of 2,200 no longer costs the
+  other 2,199. The source stays `ok: true` (it answered), `partial` is forced
+  `true` (the answer is incomplete), and `sources[].invalid_count` /
+  `invalid_samples` say how many records were dropped and why.
+- **A malformed envelope still fails loudly.** A 200 response that is not
+  valid GeoJSON/RSS at all — not one bad record but a broken feed — still
+  turns into `ok=false` for that source. Quarantine only applies once the
+  envelope is confirmed genuine.
 - **Adapters never raise outward.** A failing source returns a status, so one
   broken feed cannot take down a response.
 

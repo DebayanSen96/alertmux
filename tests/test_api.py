@@ -26,11 +26,15 @@ def _alert():
 
 
 class FakeAdapter:
-    def __init__(self, source_id, ok=True, alerts=None, error=None):
+    def __init__(
+        self, source_id, ok=True, alerts=None, error=None,
+        invalid_count=0, invalid_samples=None,
+    ):
         self.source_id = source_id
         self._result = FetchResult(
             source_id=source_id, ok=ok, alerts=alerts or [],
             error=error, retrieved_at=NOW, latency_ms=5,
+            invalid_count=invalid_count, invalid_samples=invalid_samples or [],
         )
 
     def fetch(self):
@@ -177,6 +181,39 @@ def test_both_endpoints_state_the_relay_disclaimer_in_the_body():
     assert "not a substitute" in client.get("/alerts").json()["disclaimer"].lower()
     clear_cache()
     assert "not a substitute" in client.get("/health").json()["disclaimer"].lower()
+
+
+def test_alerts_exposes_invalid_count_and_forces_partial():
+    """D3: a source that quarantined records must be visible to a
+    consumer of /alerts, not just internally."""
+    client = _client([
+        FakeAdapter(
+            "wmo-swic", alerts=[_alert()],
+            invalid_count=1, invalid_samples=["ValueError: no capurl"],
+        ),
+    ])
+    body = client.get("/alerts").json()
+    assert body["partial"] is True
+    source = next(s for s in body["sources"] if s["source_id"] == "wmo-swic")
+    assert source["ok"] is True
+    assert source["invalid_count"] == 1
+    assert source["invalid_samples"] == ["ValueError: no capurl"]
+
+
+def test_health_exposes_invalid_count_and_returns_503():
+    client = _client([
+        FakeAdapter(
+            "wmo-swic", alerts=[_alert()],
+            invalid_count=2, invalid_samples=["ValueError: no capurl"],
+        ),
+    ])
+    response = client.get("/health")
+    assert response.status_code == 503
+    body = response.json()
+    assert body["ok"] is False
+    source = next(s for s in body["sources"] if s["source_id"] == "wmo-swic")
+    assert source["invalid_count"] == 2
+    assert source["invalid_samples"] == ["ValueError: no capurl"]
 
 
 def test_truncated_source_makes_the_api_response_partial():

@@ -46,10 +46,15 @@ def test_event_comes_from_eventtype_via_explicit_table():
     assert by_event["Wildfire"].id.startswith("gdacs:WF:")
 
 
-def test_unknown_eventtype_raises():
+def test_unknown_eventtype_is_quarantined():
+    """D3: an unmapped eventtype is a malformed record for this feed. It
+    is skipped and counted, not allowed to abort the whole fetch."""
     tree_bytes = FIXTURE.replace(b"<gdacs:eventtype>EQ</gdacs:eventtype>", b"<gdacs:eventtype>XX</gdacs:eventtype>")
-    with pytest.raises(ValueError, match="not a known code"):
-        GdacsAdapter().parse(tree_bytes, NOW)
+    alerts = GdacsAdapter().parse(tree_bytes, NOW)
+    assert alerts.invalid_count == 1
+    assert any("not a known code" in sample for sample in alerts.invalid_samples)
+    # The other four items in the fixture still parse.
+    assert len(alerts) == 4
 
 
 def test_id_is_derived_from_eventid_and_episodeid():
@@ -67,12 +72,14 @@ def test_id_is_stable_across_two_independent_parses():
     assert [a.id for a in first] == [a.id for a in second]
 
 
-def test_missing_eventid_or_episodeid_raises():
+def test_missing_eventid_or_episodeid_is_quarantined():
     tree_bytes = FIXTURE.replace(
         b"<gdacs:episodeid>1726926</gdacs:episodeid>", b""
     )
-    with pytest.raises(ValueError, match="eventid/gdacs:episodeid"):
-        GdacsAdapter().parse(tree_bytes, NOW)
+    alerts = GdacsAdapter().parse(tree_bytes, NOW)
+    assert alerts.invalid_count == 1
+    assert any("eventid/gdacs:episodeid" in sample for sample in alerts.invalid_samples)
+    assert len(alerts) == 4
 
 
 def test_urgency_certainty_expires_are_always_structurally_unavailable():
@@ -108,14 +115,36 @@ def test_timestamps_are_parsed_as_rfc822_and_converted_to_utc():
     assert alert.onset == datetime(2026, 8, 18, 6, 2, 20, tzinfo=timezone.utc)
 
 
-def test_naive_pubdate_raises_rather_than_assuming_utc():
+def test_naive_pubdate_is_quarantined_rather_than_assuming_utc():
     tree_bytes = FIXTURE.replace(
         b"<pubDate>Tue, 18 Aug 2026 06:26:05 GMT</pubDate>",
         b"<pubDate>Tue, 18 Aug 2026 06:26:05</pubDate>",
         1,
     )
-    with pytest.raises(ValueError, match="no UTC offset"):
-        GdacsAdapter().parse(tree_bytes, NOW)
+    alerts = GdacsAdapter().parse(tree_bytes, NOW)
+    assert alerts.invalid_count == 1
+    assert any("no UTC offset" in sample for sample in alerts.invalid_samples)
+    assert len(alerts) == 4
+
+
+def test_all_items_malformed_yields_empty_list_and_full_invalid_count():
+    tree_bytes = FIXTURE.replace(b"<gdacs:eventtype>", b"<gdacs:BROKEN>").replace(
+        b"</gdacs:eventtype>", b"</gdacs:BROKEN>"
+    )
+    alerts = GdacsAdapter().parse(tree_bytes, NOW)
+    assert alerts == []
+    assert alerts.invalid_count == 5
+
+
+@respx.mock
+def test_fetch_quarantines_one_bad_record_and_still_returns_the_rest():
+    tree_bytes = FIXTURE.replace(b"<gdacs:eventtype>EQ</gdacs:eventtype>", b"<gdacs:eventtype>XX</gdacs:eventtype>")
+    respx.get(GdacsAdapter.URL).mock(return_value=httpx.Response(200, content=tree_bytes))
+    result = GdacsAdapter().fetch()
+    assert result.ok is True
+    assert len(result.alerts) == 4
+    assert result.invalid_count == 1
+    assert len(result.invalid_samples) == 1
 
 
 def test_geometry_prefers_point_over_bbox():

@@ -26,6 +26,13 @@ class SourceStatus(BaseModel):
     truncated: bool = False
     matched: int | None = None
     returned: int | None = None
+    # Per-record quarantine (D3, superseded 2026-08-18). Records that
+    # could not be parsed were skipped rather than aborting the whole
+    # fetch; invalid_count > 0 still forces `partial` on AlertsResponse,
+    # exactly like `truncated` -- a source that quarantined records
+    # answered, but incompletely.
+    invalid_count: int = 0
+    invalid_samples: list[str] = Field(default_factory=list)
 
 
 class AlertsResponse(BaseModel):
@@ -80,6 +87,8 @@ def collect(adapters) -> AlertsResponse:
                 truncated=result.truncated,
                 matched=result.matched,
                 returned=result.returned,
+                invalid_count=result.invalid_count,
+                invalid_samples=result.invalid_samples,
             )
         )
 
@@ -88,8 +97,10 @@ def collect(adapters) -> AlertsResponse:
     return AlertsResponse(
         alerts=alerts,
         sources=statuses,
-        # A truncated source is incomplete data even though ok is True.
-        partial=any((not s.ok) or s.truncated for s in statuses),
+        # A truncated source, or one that quarantined records, is
+        # incomplete data even though ok is True. Silent partial success
+        # is a bug (DECISIONS.md principle 4 / D3).
+        partial=any((not s.ok) or s.truncated or s.invalid_count > 0 for s in statuses),
         retrieved_at=datetime.now(tz=timezone.utc),
         duplicate_groups=duplicate_groups,
         ambiguous_duplicate_groups=ambiguous_duplicate_groups,

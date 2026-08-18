@@ -58,7 +58,7 @@ alert never expires, or that the source did not say. Naming the gap removes the
 ambiguity. The README states this list is *exhaustive*; that promise is enforced
 mechanically (see below), not by remembering to append.
 
-## adapters/base.py — adapters never raise
+## adapters/base.py — adapters never raise, and neither does one bad record
 
 A source being down is **data**, not an exception:
 
@@ -71,13 +71,53 @@ class FetchResult(BaseModel):
     truncated: bool = False
     matched: int | None = None
     returned: int | None = None
+    invalid_count: int = 0
+    invalid_samples: list[str] = []
 ```
 
 `fetch()` catches broadly and returns `ok=False`. This is what stops one broken feed
-taking down the whole response.
+taking down the whole response — but that guard is about the *envelope*: a 200 that
+isn't valid GeoJSON/RSS at all. A malformed *record* inside an otherwise-good
+envelope is a different failure and gets a different treatment (D3, superseded
+2026-08-18): **per-feature quarantine**, not a fetch-wide abort.
 
-`truncated` is deliberately separate from `ok`: the source answered correctly and the
-alerts present are real, but there were more. A right answer that is incomplete.
+```python
+class RecordQuarantine(list):
+    """A list of parsed alerts that also carries the stats for the
+    records that failed to parse instead of raising."""
+
+    def __init__(self, alerts=None):
+        super().__init__(alerts or [])
+        self.invalid_count = 0
+        self.invalid_samples: list[str] = []
+
+    def quarantine(self, exc: Exception) -> None:
+        self.invalid_count += 1
+        if len(self.invalid_samples) < RECORD_SAMPLE_CAP:
+            self.invalid_samples.append(f"{type(exc).__name__}: {exc}")
+```
+
+Every adapter's `parse()` loop wraps the per-record body in `try`/`except Exception`
+and calls `alerts.quarantine(exc)` on failure instead of letting the exception
+propagate. `RecordQuarantine` subclasses `list` deliberately: every existing caller
+of `parse()` — every other adapter, every test — treats the return value as a plain
+`list[NormalisedAlert]` (`len()`, indexing, `== []`, iteration). Subclassing keeps
+every one of those call sites working unchanged; a caller that needs the quarantine
+stats reads `.invalid_count` / `.invalid_samples` off the same object. `fetch()`
+copies both onto `FetchResult`. Samples are capped (`RECORD_SAMPLE_CAP = 5`) so a
+source that reshaped its whole schema produces five diagnosable exception strings,
+not a fetch-sized wall of identical ones — the count itself stays exact regardless
+of the cap.
+
+Envelope checks (`_require_feature_collection`, GDACS's `<rss>`/`<channel>` check,
+EONET's events-list check) stay **outside** the per-record loop and still raise:
+a broken envelope means the source itself is broken, not that one record was bad.
+Collapsing that distinction was explicitly ruled out — see D3 in `DECISIONS.md`.
+
+`truncated` is deliberately separate from `ok`, on the same reasoning `invalid_count`
+now follows: the source answered correctly and the alerts present are real, but
+there were more (`truncated`) or some were dropped as unparseable (`invalid_count`).
+Either way it is a right answer that is incomplete.
 
 ## adapters/swic.py — three defences
 
@@ -108,7 +148,10 @@ id=f"{self.source_id}:{capurl}"
 
 GeoServer's `feature["id"]` embeds a *request* timestamp, so it changes on every
 fetch. `capurl` identifies the CAP file itself and is stable. Deduplication — and
-therefore any future notifier — rests entirely on this.
+therefore any future notifier — rests entirely on this. This `raise` is inside the
+per-feature `try` in `parse()`'s loop, so as of D3 it no longer aborts the whole
+fetch: the feature with no `capurl` is quarantined and the other 2,199 features on
+the same response are still returned.
 
 **3. Refuse to assume a timezone.**
 
@@ -136,10 +179,12 @@ it is covered automatically. Hand-maintained lists drift; this one cannot.
 ## query.py — one line carries the safety property
 
 ```python
-partial = any((not s.ok) or s.truncated for s in statuses)
+partial = any((not s.ok) or s.truncated or s.invalid_count > 0 for s in statuses)
 ```
 
-Failed **or** truncated. Both mean the answer must not be presented as complete.
+Failed, truncated, **or** carrying quarantined records. All three mean the answer
+must not be presented as complete — a source that quarantined records is `ok=True`
+(it answered) but the answer is short exactly the records that failed to parse.
 
 ```python
 source_id=getattr(adapter, "source_id", "unknown")

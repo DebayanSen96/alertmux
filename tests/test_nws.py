@@ -95,13 +95,17 @@ def test_parse_maps_expires_and_onset_with_utc_offset():
     assert alert.expires is not None
 
 
-def test_naive_timestamp_raises_rather_than_assuming_utc():
+def test_naive_timestamp_is_quarantined_rather_than_assuming_utc():
+    """D3: a naive timestamp is a malformed record. It is skipped and
+    counted, not allowed to abort the whole fetch."""
     feature = dict(FIXTURE["features"][0])
     feature["properties"] = dict(feature["properties"])
     feature["properties"]["expires"] = "2026-08-18T08:15:00"  # no offset
     collection = {"type": "FeatureCollection", "features": [feature]}
-    with pytest.raises(ValueError, match="no UTC offset"):
-        NwsAdapter().parse(collection, NOW)
+    alerts = NwsAdapter().parse(collection, NOW)
+    assert alerts == []
+    assert alerts.invalid_count == 1
+    assert any("no UTC offset" in sample for sample in alerts.invalid_samples)
 
 
 def test_geometry_present_alert_keeps_polygon():
@@ -120,25 +124,69 @@ def test_null_geometry_means_zone_referenced_not_unknown():
     assert "geometry" in small_craft.unavailable_fields
 
 
-def test_missing_id_raises():
+def test_missing_id_is_quarantined():
     feature = dict(FIXTURE["features"][0])
     feature["properties"] = dict(feature["properties"])
     del feature["properties"]["id"]
     collection = {"type": "FeatureCollection", "features": [feature]}
-    with pytest.raises(ValueError, match="no properties.id"):
-        NwsAdapter().parse(collection, NOW)
+    alerts = NwsAdapter().parse(collection, NOW)
+    assert alerts == []
+    assert alerts.invalid_count == 1
+    assert any("no properties.id" in sample for sample in alerts.invalid_samples)
 
 
-def test_missing_event_raises():
+def test_missing_event_is_quarantined():
     feature = dict(FIXTURE["features"][0])
     feature["properties"] = dict(feature["properties"])
     feature["properties"]["event"] = ""
     collection = {"type": "FeatureCollection", "features": [feature]}
-    with pytest.raises(ValueError, match="no event"):
-        NwsAdapter().parse(collection, NOW)
+    alerts = NwsAdapter().parse(collection, NOW)
+    assert alerts == []
+    assert alerts.invalid_count == 1
+    assert any("no event" in sample for sample in alerts.invalid_samples)
+
+
+def test_one_malformed_feature_among_valid_ones_is_quarantined_not_fatal():
+    good = FIXTURE["features"][0]
+    bad = dict(FIXTURE["features"][0])
+    bad["properties"] = dict(bad["properties"])
+    bad["properties"]["event"] = ""
+    collection = {"type": "FeatureCollection", "features": [good, bad]}
+    alerts = NwsAdapter().parse(collection, NOW)
+    assert len(alerts) == 1
+    assert alerts.invalid_count == 1
+
+
+def test_all_features_malformed_yields_empty_list_and_full_invalid_count():
+    bad1 = dict(FIXTURE["features"][0])
+    bad1["properties"] = dict(bad1["properties"])
+    bad1["properties"]["event"] = ""
+    bad2 = dict(FIXTURE["features"][1])
+    bad2["properties"] = dict(bad2["properties"])
+    bad2["properties"]["event"] = ""
+    collection = {"type": "FeatureCollection", "features": [bad1, bad2]}
+    alerts = NwsAdapter().parse(collection, NOW)
+    assert alerts == []
+    assert alerts.invalid_count == 2
+
+
+@respx.mock
+def test_fetch_quarantines_one_bad_record_and_still_returns_the_rest():
+    good = FIXTURE["features"][0]
+    bad = dict(FIXTURE["features"][0])
+    bad["properties"] = dict(bad["properties"])
+    bad["properties"]["event"] = ""
+    payload = {"type": "FeatureCollection", "features": [good, bad]}
+    respx.get(NwsAdapter.URL).mock(return_value=httpx.Response(200, json=payload))
+    result = NwsAdapter().fetch()
+    assert result.ok is True
+    assert len(result.alerts) == 1
+    assert result.invalid_count == 1
+    assert len(result.invalid_samples) == 1
 
 
 def test_non_featurecollection_200_raises_rather_than_reporting_zero_alerts():
+    """Quarantine must not weaken the envelope check."""
     with pytest.raises(ValueError, match="FeatureCollection"):
         NwsAdapter().parse({"correlationId": "x", "detail": "..."}, NOW)
 

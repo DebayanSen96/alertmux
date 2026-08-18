@@ -21,7 +21,10 @@ def _alert(alert_id: str, source_id: str) -> NormalisedAlert:
 
 
 class FakeAdapter:
-    def __init__(self, source_id, ok=True, alerts=None, error=None):
+    def __init__(
+        self, source_id, ok=True, alerts=None, error=None,
+        invalid_count=0, invalid_samples=None,
+    ):
         self.source_id = source_id
         self._result = FetchResult(
             source_id=source_id,
@@ -30,6 +33,8 @@ class FakeAdapter:
             error=error,
             retrieved_at=NOW,
             latency_ms=10,
+            invalid_count=invalid_count,
+            invalid_samples=invalid_samples or [],
         )
 
     def fetch(self):
@@ -155,6 +160,33 @@ def test_truncated_but_ok_source_makes_the_response_partial():
     assert response.sources[0].truncated is True
     assert response.sources[0].matched == 2133
     assert response.partial is True
+
+
+def test_collect_aggregates_invalid_count_and_sets_partial():
+    """D3: a source that quarantined records is ok=True but incomplete
+    -- collect() must surface invalid_count on the source and force
+    partial on the response, same as truncated does."""
+    response = collect([
+        FakeAdapter(
+            "wmo-swic",
+            alerts=[_alert("wmo-swic:1", "wmo-swic")],
+            invalid_count=1,
+            invalid_samples=["ValueError: no capurl"],
+        ),
+        FakeAdapter("b", alerts=[_alert("b:1", "b")]),
+    ])
+    assert len(response.alerts) == 2
+    swic_status = next(s for s in response.sources if s.source_id == "wmo-swic")
+    assert swic_status.ok is True
+    assert swic_status.invalid_count == 1
+    assert swic_status.invalid_samples == ["ValueError: no capurl"]
+    assert response.partial is True
+
+
+def test_collect_is_not_partial_when_no_source_has_invalid_records():
+    response = collect([FakeAdapter("a"), FakeAdapter("b")])
+    assert all(s.invalid_count == 0 for s in response.sources)
+    assert response.partial is False
 
 
 def test_response_carries_the_relay_disclaimer():

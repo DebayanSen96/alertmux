@@ -67,23 +67,44 @@ It could never fail, and it gave everyone false confidence on precisely this poi
 Its replacement asserts the id is a function of `capurl` and independent of the
 server's fid.
 
-## D3 — A malformed record raises rather than being skipped
+## D3 — A malformed record is quarantined, not fatal
 
-**Decision.** A missing `capurl`, an unparseable authority prefix, a naive timestamp,
-a missing USGS `type` or `id` — each raises `ValueError`, failing the whole fetch.
+**Decision.** A record that cannot be parsed — a missing `capurl`, an unparseable
+authority prefix, a naive timestamp, a missing USGS `type` or `id`, an unknown GDACS
+`eventtype` — is **skipped**, counted into `SourceStatus.invalid_count`, and forces
+`partial=true`. The valid records in the same response are still delivered.
 
-**Why.** Failing loudly beats quietly inventing. The alternative considered was
-substituting a placeholder, which violates principle 2.
+**Why.** Failing loudly beats quietly inventing, but failing *entirely* was too
+blunt. Both alternatives were worse: substituting a placeholder violates principle 2
+(nothing inferred), and dropping the record silently violates principle 4 (no silent
+partial success). Quarantine satisfies both — nothing is invented, and the
+incompleteness is stated.
 
-**Known cost, accepted for v0.1.** One bad record from one authority currently
-discards the whole response — 1,900+ good warnings from 58 other services. That is
-tolerable *only* because the failure is loud: `ok=false`, `partial=true`, HTTP 503.
-The operator knows they are seeing nothing rather than believing an incomplete list
-is complete.
+**The reason is preserved.** `SourceStatus.invalid_samples` carries the exception
+type and message for the first few quarantined records, capped so a mass failure
+cannot produce a megabyte of errors. An operator can see *why* records are being
+dropped, which is what makes a shape change in an upstream feed diagnosable rather
+than mysterious.
 
-**Superseding plan.** Per-feature quarantine: skip the malformed feature, never
-invent a value for it, count it into `SourceStatus.invalid_count`, and force
-`partial=true`. That satisfies both principle 2 and principle 4. Tracked for v0.2.
+**Envelope errors are still fatal, deliberately.** A response that is not valid
+GeoJSON or RSS at all — the `_require_feature_collection` checks — still returns
+`ok=false` with no alerts. The distinction is the point: a malformed *record* means
+one record is broken; a malformed *envelope* means the source is broken. Collapsing
+the two would let a GeoServer error page parse as "zero hazards worldwide", which is
+the failure D-numbered elsewhere as the worst this system can produce.
+
+**Cost if wrong.** A record that *should* have failed the whole fetch now passes
+quietly into a count. That is mitigated by `partial=true` and the sample messages —
+the response never claims completeness it does not have.
+
+### Superseded — the v0.1 behaviour, kept for the record
+
+Until 18 Aug 2026 a single malformed record aborted the entire fetch: one bad record
+from one authority discarded 2,200 good warnings from 53 other services, and the
+60-second cache pinned that blackout. It was tolerable only because the failure was
+loud (`ok=false`, `partial=true`, HTTP 503) — the operator knew they were seeing
+nothing rather than believing an incomplete list was complete. It was still the
+wrong trade, and issue #1 tracked replacing it.
 
 ## D4 — `truncated` is separate from `ok`, and both make a response partial
 

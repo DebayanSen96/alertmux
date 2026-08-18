@@ -69,7 +69,7 @@ from datetime import datetime, timezone
 
 import httpx
 
-from alertmux.adapters.base import FetchResult
+from alertmux.adapters.base import FetchResult, RecordQuarantine
 from alertmux.schema import NormalisedAlert, Provenance
 
 AUTHORITY = "nasa-eonet"
@@ -191,72 +191,81 @@ class EonetAdapter:
         self._limit = limit
 
     def parse(self, payload: dict, retrieved_at: datetime) -> list[NormalisedAlert]:
+        """A payload with no `events` list at all is a hard failure --
+        the source didn't answer with the events envelope. A single
+        event that cannot be parsed is quarantined instead -- skipped,
+        counted, sampled on the returned list (see `RecordQuarantine`),
+        never allowed to discard every other event (DECISIONS.md D3).
+        """
         _require_events_envelope(payload)
 
-        alerts: list[NormalisedAlert] = []
+        alerts = RecordQuarantine()
 
         for event in payload["events"]:
-            event_id = event.get("id")
-            if not event_id:
-                raise ValueError("EONET event has no id; cannot derive identity")
+            try:
+                event_id = event.get("id")
+                if not event_id:
+                    raise ValueError("EONET event has no id; cannot derive identity")
 
-            title = event.get("title")
-            if not title:
-                raise ValueError(f"EONET event {event_id!r} has no title")
+                title = event.get("title")
+                if not title:
+                    raise ValueError(f"EONET event {event_id!r} has no title")
 
-            event_type = _event_category(event)
+                event_type = _event_category(event)
 
-            # EONET's `sources` lists upstream providers (IRWIN, JTWC,
-            # etc.) that fed this observation. There is no field on
-            # NormalisedAlert shaped for a list of contributing sources
-            # - source_severity/source_urgency/source_certainty are
-            # CAP source-native *values*, not provider names, and
-            # stuffing provider ids into one would misuse the field and
-            # overstate what was preserved. `sources` is left out
-            # structurally; a consumer that needs it can follow
-            # `provenance.raw_reference` (the event's own EONET API
-            # page), which lists the same providers itself.
-            fields = {
-                "headline": title,
-                "description": event.get("description") or None,
-                "area_description": None,
-                # Observations, not warnings - none of these concepts
-                # apply to a satellite sighting. Never derived from
-                # categories or geometry count. See module docstring.
-                "severity": None,
-                "urgency": None,
-                "certainty": None,
-                "source_severity": None,
-                "source_urgency": None,
-                "source_certainty": None,
-                "sent": _iso_utc(_latest_geometry_date(event), "geometries[].date"),
-                "onset": None,
-                "expires": None,
-                "geometry": _latest_geometry(event),
-            }
+                # EONET's `sources` lists upstream providers (IRWIN, JTWC,
+                # etc.) that fed this observation. There is no field on
+                # NormalisedAlert shaped for a list of contributing sources
+                # - source_severity/source_urgency/source_certainty are
+                # CAP source-native *values*, not provider names, and
+                # stuffing provider ids into one would misuse the field and
+                # overstate what was preserved. `sources` is left out
+                # structurally; a consumer that needs it can follow
+                # `provenance.raw_reference` (the event's own EONET API
+                # page), which lists the same providers itself.
+                fields = {
+                    "headline": title,
+                    "description": event.get("description") or None,
+                    "area_description": None,
+                    # Observations, not warnings - none of these concepts
+                    # apply to a satellite sighting. Never derived from
+                    # categories or geometry count. See module docstring.
+                    "severity": None,
+                    "urgency": None,
+                    "certainty": None,
+                    "source_severity": None,
+                    "source_urgency": None,
+                    "source_certainty": None,
+                    "sent": _iso_utc(_latest_geometry_date(event), "geometries[].date"),
+                    "onset": None,
+                    "expires": None,
+                    "geometry": _latest_geometry(event),
+                }
 
-            # Unioned with whatever else came back None on this
-            # particular event, same derived-not-appended construction
-            # as gdacs.py/nws.py.
-            unavailable = sorted(
-                set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None}
-            )
-
-            alerts.append(
-                NormalisedAlert(
-                    id=f"{self.source_id}:{event_id}",
-                    event=event_type,
-                    provenance=Provenance(
-                        authority=AUTHORITY,
-                        source_id=self.source_id,
-                        source_url=self.URL,
-                        retrieved_at=retrieved_at,
-                        raw_reference=event.get("link"),
-                    ),
-                    unavailable_fields=unavailable,
-                    **fields,
+                # Unioned with whatever else came back None on this
+                # particular event, same derived-not-appended construction
+                # as gdacs.py/nws.py.
+                unavailable = sorted(
+                    set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None}
                 )
-            )
+
+                alerts.append(
+                    NormalisedAlert(
+                        id=f"{self.source_id}:{event_id}",
+                        event=event_type,
+                        provenance=Provenance(
+                            authority=AUTHORITY,
+                            source_id=self.source_id,
+                            source_url=self.URL,
+                            retrieved_at=retrieved_at,
+                            raw_reference=event.get("link"),
+                        ),
+                        unavailable_fields=unavailable,
+                        **fields,
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 - one bad record is quarantined, not fatal
+                alerts.quarantine(exc)
 
         return alerts
 
@@ -290,4 +299,6 @@ class EonetAdapter:
             alerts=alerts,
             retrieved_at=retrieved_at,
             latency_ms=int((time.monotonic() - started) * 1000),
+            invalid_count=alerts.invalid_count,
+            invalid_samples=alerts.invalid_samples,
         )

@@ -63,7 +63,7 @@ from email.utils import parsedate_to_datetime
 
 import httpx
 
-from alertmux.adapters.base import FetchResult
+from alertmux.adapters.base import FetchResult, RecordQuarantine
 from alertmux.schema import NormalisedAlert, Provenance
 
 AUTHORITY = "gdacs"
@@ -198,6 +198,12 @@ class GdacsAdapter:
         self._timeout = timeout
 
     def parse(self, payload: bytes | str, retrieved_at: datetime) -> list[NormalisedAlert]:
+        """Unparseable XML or a non-<rss> root is a hard failure -- the
+        source didn't answer with a feed at all. A single <item> that
+        cannot be parsed is quarantined instead -- skipped, counted,
+        sampled on the returned list (see `RecordQuarantine`), never
+        allowed to discard every other item (DECISIONS.md D3).
+        """
         try:
             root = ET.fromstring(payload)
         except ET.ParseError as exc:
@@ -205,78 +211,81 @@ class GdacsAdapter:
 
         channel = _require_rss_channel(root)
 
-        alerts: list[NormalisedAlert] = []
+        alerts = RecordQuarantine()
 
         for item in channel.findall("item"):
-            eventtype = _text(item, "gdacs:eventtype")
-            if not eventtype:
-                raise ValueError("GDACS item has no gdacs:eventtype")
-            event = EVENT_TYPES.get(eventtype)
-            if event is None:
-                raise ValueError(
-                    f"GDACS eventtype {eventtype!r} is not a known code; "
-                    "refusing to pass it through unmapped or default it"
+            try:
+                eventtype = _text(item, "gdacs:eventtype")
+                if not eventtype:
+                    raise ValueError("GDACS item has no gdacs:eventtype")
+                event = EVENT_TYPES.get(eventtype)
+                if event is None:
+                    raise ValueError(
+                        f"GDACS eventtype {eventtype!r} is not a known code; "
+                        "refusing to pass it through unmapped or default it"
+                    )
+
+                eventid = _text(item, "gdacs:eventid")
+                episodeid = _text(item, "gdacs:episodeid")
+                if not eventid or not episodeid:
+                    raise ValueError(
+                        "GDACS item has no gdacs:eventid/gdacs:episodeid; "
+                        "cannot derive a stable identity"
+                    )
+
+                fields = {
+                    "headline": _text(item, "title"),
+                    "description": _text(item, "description"),
+                    "area_description": _text(item, "gdacs:country"),
+                    # gdacs:alertlevel (Green/Orange/Red) is an expected
+                    # HUMANITARIAN IMPACT score, not a statement of hazard
+                    # severity - GDACS never says how severe the earthquake,
+                    # flood, etc. itself is. Mapping Green/Orange/Red onto
+                    # CAP's Minor/Moderate/Severe/Extreme would assert a
+                    # severity the source never gave. Kept in
+                    # source_severity only; see module docstring and
+                    # DECISIONS.md.
+                    "severity": None,
+                    "urgency": None,
+                    "certainty": None,
+                    "source_severity": _text(item, "gdacs:alertlevel"),
+                    "source_urgency": None,
+                    "source_certainty": None,
+                    "sent": _rfc822_utc(_text(item, "pubDate"), "pubDate"),
+                    "onset": _rfc822_utc(_text(item, "gdacs:fromdate"), "fromdate"),
+                    "expires": None,
+                    "geometry": _geometry(item),
+                }
+
+                # Unioned with whatever else came back None on this record,
+                # same derived-not-appended construction as nws.py/swic.py.
+                unavailable = sorted(
+                    set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None}
                 )
 
-            eventid = _text(item, "gdacs:eventid")
-            episodeid = _text(item, "gdacs:episodeid")
-            if not eventid or not episodeid:
-                raise ValueError(
-                    "GDACS item has no gdacs:eventid/gdacs:episodeid; "
-                    "cannot derive a stable identity"
+                # "Raw reference" is the CAP file GDACS generated for this
+                # episode where one exists - that is the most literal "raw"
+                # document behind the alert. The human-readable report page
+                # (<link>) is the fallback when no CAP URL is given.
+                raw_reference = _text(item, "gdacs:cap") or _text(item, "link")
+
+                alerts.append(
+                    NormalisedAlert(
+                        id=f"{self.source_id}:{eventtype}:{eventid}:{episodeid}",
+                        event=event,
+                        provenance=Provenance(
+                            authority=AUTHORITY,
+                            source_id=self.source_id,
+                            source_url=self.URL,
+                            retrieved_at=retrieved_at,
+                            raw_reference=raw_reference,
+                        ),
+                        unavailable_fields=unavailable,
+                        **fields,
+                    )
                 )
-
-            fields = {
-                "headline": _text(item, "title"),
-                "description": _text(item, "description"),
-                "area_description": _text(item, "gdacs:country"),
-                # gdacs:alertlevel (Green/Orange/Red) is an expected
-                # HUMANITARIAN IMPACT score, not a statement of hazard
-                # severity - GDACS never says how severe the earthquake,
-                # flood, etc. itself is. Mapping Green/Orange/Red onto
-                # CAP's Minor/Moderate/Severe/Extreme would assert a
-                # severity the source never gave. Kept in
-                # source_severity only; see module docstring and
-                # DECISIONS.md.
-                "severity": None,
-                "urgency": None,
-                "certainty": None,
-                "source_severity": _text(item, "gdacs:alertlevel"),
-                "source_urgency": None,
-                "source_certainty": None,
-                "sent": _rfc822_utc(_text(item, "pubDate"), "pubDate"),
-                "onset": _rfc822_utc(_text(item, "gdacs:fromdate"), "fromdate"),
-                "expires": None,
-                "geometry": _geometry(item),
-            }
-
-            # Unioned with whatever else came back None on this record,
-            # same derived-not-appended construction as nws.py/swic.py.
-            unavailable = sorted(
-                set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None}
-            )
-
-            # "Raw reference" is the CAP file GDACS generated for this
-            # episode where one exists - that is the most literal "raw"
-            # document behind the alert. The human-readable report page
-            # (<link>) is the fallback when no CAP URL is given.
-            raw_reference = _text(item, "gdacs:cap") or _text(item, "link")
-
-            alerts.append(
-                NormalisedAlert(
-                    id=f"{self.source_id}:{eventtype}:{eventid}:{episodeid}",
-                    event=event,
-                    provenance=Provenance(
-                        authority=AUTHORITY,
-                        source_id=self.source_id,
-                        source_url=self.URL,
-                        retrieved_at=retrieved_at,
-                        raw_reference=raw_reference,
-                    ),
-                    unavailable_fields=unavailable,
-                    **fields,
-                )
-            )
+            except Exception as exc:  # noqa: BLE001 - one bad record is quarantined, not fatal
+                alerts.quarantine(exc)
 
         return alerts
 
@@ -309,4 +318,6 @@ class GdacsAdapter:
             alerts=alerts,
             retrieved_at=retrieved_at,
             latency_ms=int((time.monotonic() - started) * 1000),
+            invalid_count=alerts.invalid_count,
+            invalid_samples=alerts.invalid_samples,
         )

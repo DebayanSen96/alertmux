@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 
 import httpx
 
-from alertmux.adapters.base import FetchResult
+from alertmux.adapters.base import FetchResult, RecordQuarantine
 from alertmux.schema import NormalisedAlert, Provenance
 
 AUTHORITY = "us-noaa"
@@ -93,16 +93,25 @@ class NwsAdapter:
         self._timeout = timeout
 
     def parse(self, payload: dict, retrieved_at: datetime) -> list[NormalisedAlert]:
+        """A malformed envelope (not a FeatureCollection) is a hard
+        failure. A single malformed feature is quarantined instead --
+        skipped, counted, sampled on the returned list (see
+        `RecordQuarantine`), never allowed to discard the whole
+        response (DECISIONS.md D3). The Test/Cancel exclusion below stays
+        a plain `continue`, not a quarantine: those records are not
+        malformed, the source is telling us they are not warnings.
+        """
         _require_feature_collection(payload)
 
-        alerts: list[NormalisedAlert] = []
+        alerts = RecordQuarantine()
 
         for feature in payload["features"]:
             props = feature.get("properties")
             if not props:
-                raise ValueError(
-                    f"NWS feature {feature.get('id')!r} has no properties"
+                alerts.quarantine(
+                    ValueError(f"NWS feature {feature.get('id')!r} has no properties")
                 )
+                continue
 
             # Only relay real hazard warnings. The KEEPALIVE test record
             # (status: "Test", event: "Test Message") and any Cancel
@@ -113,70 +122,73 @@ class NwsAdapter:
             if props.get("messageType") == "Cancel":
                 continue
 
-            event = props.get("event")
-            if not event:
-                raise ValueError(
-                    f"NWS feature {feature.get('id')!r} has no event"
+            try:
+                event = props.get("event")
+                if not event:
+                    raise ValueError(
+                        f"NWS feature {feature.get('id')!r} has no event"
+                    )
+
+                identifier = props.get("id")
+                if not identifier:
+                    raise ValueError(
+                        f"NWS feature {feature.get('id')!r} has no properties.id; "
+                        "cannot derive a stable identity"
+                    )
+
+                fields = {
+                    "headline": props.get("headline"),
+                    "description": props.get("description"),
+                    "area_description": props.get("areaDesc"),
+                    # Named CAP values straight from the source - no integer
+                    # code table exists or is needed for this feed.
+                    "severity": props.get("severity"),
+                    "urgency": props.get("urgency"),
+                    "certainty": props.get("certainty"),
+                    # Raw source-native values, preserved exactly like every
+                    # other adapter, even though here they equal the named
+                    # fields above (no code mapping to diverge from).
+                    "source_severity": props.get("severity"),
+                    "source_urgency": props.get("urgency"),
+                    "source_certainty": props.get("certainty"),
+                    "sent": _iso_utc(props.get("sent"), "sent"),
+                    "onset": _iso_utc(props.get("onset"), "onset"),
+                    "expires": _iso_utc(props.get("expires"), "expires"),
+                    # Zone-referenced alerts (the majority) carry no polygon
+                    # at all - affectedZones/geocode stand in for it. That is
+                    # a different situation from "the source didn't know",
+                    # but the schema has no third state, so it still lands
+                    # in unavailable_fields below like any other None.
+                    "geometry": feature.get("geometry"),
+                }
+
+                # Every Actual record observed on this feed supplies
+                # headline, description, sent, onset and expires - nothing
+                # is structurally absent the way onset/expires are for SWIC's
+                # list view or severity is for USGS. unavailable_fields is
+                # therefore built purely from what came back None on this
+                # particular record (chiefly geometry).
+                unavailable = sorted(
+                    set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None}
                 )
 
-            identifier = props.get("id")
-            if not identifier:
-                raise ValueError(
-                    f"NWS feature {feature.get('id')!r} has no properties.id; "
-                    "cannot derive a stable identity"
+                alerts.append(
+                    NormalisedAlert(
+                        id=f"{self.source_id}:{identifier}",
+                        event=event,
+                        provenance=Provenance(
+                            authority=AUTHORITY,
+                            source_id=self.source_id,
+                            source_url=self.URL,
+                            retrieved_at=retrieved_at,
+                            raw_reference=props.get("@id") or identifier,
+                        ),
+                        unavailable_fields=unavailable,
+                        **fields,
+                    )
                 )
-
-            fields = {
-                "headline": props.get("headline"),
-                "description": props.get("description"),
-                "area_description": props.get("areaDesc"),
-                # Named CAP values straight from the source - no integer
-                # code table exists or is needed for this feed.
-                "severity": props.get("severity"),
-                "urgency": props.get("urgency"),
-                "certainty": props.get("certainty"),
-                # Raw source-native values, preserved exactly like every
-                # other adapter, even though here they equal the named
-                # fields above (no code mapping to diverge from).
-                "source_severity": props.get("severity"),
-                "source_urgency": props.get("urgency"),
-                "source_certainty": props.get("certainty"),
-                "sent": _iso_utc(props.get("sent"), "sent"),
-                "onset": _iso_utc(props.get("onset"), "onset"),
-                "expires": _iso_utc(props.get("expires"), "expires"),
-                # Zone-referenced alerts (the majority) carry no polygon
-                # at all - affectedZones/geocode stand in for it. That is
-                # a different situation from "the source didn't know",
-                # but the schema has no third state, so it still lands
-                # in unavailable_fields below like any other None.
-                "geometry": feature.get("geometry"),
-            }
-
-            # Every Actual record observed on this feed supplies
-            # headline, description, sent, onset and expires - nothing
-            # is structurally absent the way onset/expires are for SWIC's
-            # list view or severity is for USGS. unavailable_fields is
-            # therefore built purely from what came back None on this
-            # particular record (chiefly geometry).
-            unavailable = sorted(
-                set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None}
-            )
-
-            alerts.append(
-                NormalisedAlert(
-                    id=f"{self.source_id}:{identifier}",
-                    event=event,
-                    provenance=Provenance(
-                        authority=AUTHORITY,
-                        source_id=self.source_id,
-                        source_url=self.URL,
-                        retrieved_at=retrieved_at,
-                        raw_reference=props.get("@id") or identifier,
-                    ),
-                    unavailable_fields=unavailable,
-                    **fields,
-                )
-            )
+            except Exception as exc:  # noqa: BLE001 - one bad record is quarantined, not fatal
+                alerts.quarantine(exc)
 
         return alerts
 
@@ -213,4 +225,6 @@ class NwsAdapter:
             alerts=alerts,
             retrieved_at=retrieved_at,
             latency_ms=int((time.monotonic() - started) * 1000),
+            invalid_count=alerts.invalid_count,
+            invalid_samples=alerts.invalid_samples,
         )

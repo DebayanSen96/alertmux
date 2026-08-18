@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 
 import httpx
 
-from alertmux.adapters.base import FetchResult
+from alertmux.adapters.base import FetchResult, RecordQuarantine
 from alertmux.schema import NormalisedAlert, Provenance
 
 AUTHORITY = "us-usgs"
@@ -66,71 +66,80 @@ class UsgsAdapter:
         self._timeout = timeout
 
     def parse(self, payload: dict, retrieved_at: datetime) -> list[NormalisedAlert]:
+        """A malformed envelope (not a FeatureCollection) is a hard
+        failure. A single malformed feature is quarantined instead --
+        skipped, counted, sampled on the returned list (see
+        `RecordQuarantine`), never allowed to discard the whole
+        response (DECISIONS.md D3).
+        """
         _require_feature_collection(payload)
 
-        alerts: list[NormalisedAlert] = []
+        alerts = RecordQuarantine()
 
         for feature in payload["features"]:
-            props = feature.get("properties")
-            if not props:
-                raise ValueError(
-                    f"USGS feature {feature.get('id')!r} has no properties"
+            try:
+                props = feature.get("properties")
+                if not props:
+                    raise ValueError(
+                        f"USGS feature {feature.get('id')!r} has no properties"
+                    )
+
+                feature_id = feature.get("id")
+                if not feature_id:
+                    raise ValueError("USGS feature has no id")
+
+                # The feed carries quarry blasts and explosions too. Calling
+                # one of those an earthquake would be an invented fact.
+                event = props.get("type")
+                if not event:
+                    raise ValueError(
+                        f"USGS feature {feature_id!r} has no type"
+                    )
+
+                # PAGER alert level, not CAP severity. Kept source-native only.
+                pager = props.get("alert")
+
+                fields = {
+                    "headline": props.get("title"),
+                    # USGS has no description field. None means "the source
+                    # has none" here exactly as it does for SWIC.
+                    "description": None,
+                    "area_description": props.get("place"),
+                    # USGS states no CAP severity/urgency/certainty at all.
+                    "severity": None,
+                    "urgency": None,
+                    "certainty": None,
+                    "source_severity": str(pager) if pager else None,
+                    "source_urgency": None,
+                    "source_certainty": None,
+                    "sent": _epoch_ms(props.get("time")),
+                    # Observed events: these concepts do not apply.
+                    "onset": None,
+                    "expires": None,
+                    "geometry": feature.get("geometry"),
+                }
+
+                unavailable = sorted(
+                    set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None}
                 )
 
-            feature_id = feature.get("id")
-            if not feature_id:
-                raise ValueError("USGS feature has no id")
-
-            # The feed carries quarry blasts and explosions too. Calling
-            # one of those an earthquake would be an invented fact.
-            event = props.get("type")
-            if not event:
-                raise ValueError(
-                    f"USGS feature {feature_id!r} has no type"
+                alerts.append(
+                    NormalisedAlert(
+                        id=f"{self.source_id}:{feature_id}",
+                        event=event,
+                        provenance=Provenance(
+                            authority=AUTHORITY,
+                            source_id=self.source_id,
+                            source_url=self.URL,
+                            retrieved_at=retrieved_at,
+                            raw_reference=props.get("url"),
+                        ),
+                        unavailable_fields=unavailable,
+                        **fields,
+                    )
                 )
-
-            # PAGER alert level, not CAP severity. Kept source-native only.
-            pager = props.get("alert")
-
-            fields = {
-                "headline": props.get("title"),
-                # USGS has no description field. None means "the source
-                # has none" here exactly as it does for SWIC.
-                "description": None,
-                "area_description": props.get("place"),
-                # USGS states no CAP severity/urgency/certainty at all.
-                "severity": None,
-                "urgency": None,
-                "certainty": None,
-                "source_severity": str(pager) if pager else None,
-                "source_urgency": None,
-                "source_certainty": None,
-                "sent": _epoch_ms(props.get("time")),
-                # Observed events: these concepts do not apply.
-                "onset": None,
-                "expires": None,
-                "geometry": feature.get("geometry"),
-            }
-
-            unavailable = sorted(
-                set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None}
-            )
-
-            alerts.append(
-                NormalisedAlert(
-                    id=f"{self.source_id}:{feature_id}",
-                    event=event,
-                    provenance=Provenance(
-                        authority=AUTHORITY,
-                        source_id=self.source_id,
-                        source_url=self.URL,
-                        retrieved_at=retrieved_at,
-                        raw_reference=props.get("url"),
-                    ),
-                    unavailable_fields=unavailable,
-                    **fields,
-                )
-            )
+            except Exception as exc:  # noqa: BLE001 - one bad record is quarantined, not fatal
+                alerts.quarantine(exc)
 
         return alerts
 
@@ -163,4 +172,6 @@ class UsgsAdapter:
             alerts=alerts,
             retrieved_at=retrieved_at,
             latency_ms=int((time.monotonic() - started) * 1000),
+            invalid_count=alerts.invalid_count,
+            invalid_samples=alerts.invalid_samples,
         )

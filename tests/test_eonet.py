@@ -33,18 +33,24 @@ def test_event_comes_from_first_category_title():
     assert by_id["nasa-eonet:EONET_22562"].event == "Severe Storms"
 
 
-def test_empty_categories_raises():
+def test_empty_categories_is_quarantined():
+    """D3: an event with no categories cannot yield an `event` field. It
+    is skipped and counted, not allowed to abort the whole fetch."""
     payload = json.loads(json.dumps(FIXTURE))
     payload["events"][0]["categories"] = []
-    with pytest.raises(ValueError, match="no categories"):
-        EonetAdapter().parse(payload, NOW)
+    alerts = EonetAdapter().parse(payload, NOW)
+    assert alerts.invalid_count == 1
+    assert any("no categories" in sample for sample in alerts.invalid_samples)
+    assert len(alerts) == 4
 
 
-def test_missing_categories_key_raises():
+def test_missing_categories_key_is_quarantined():
     payload = json.loads(json.dumps(FIXTURE))
     del payload["events"][0]["categories"]
-    with pytest.raises(ValueError, match="no categories"):
-        EonetAdapter().parse(payload, NOW)
+    alerts = EonetAdapter().parse(payload, NOW)
+    assert alerts.invalid_count == 1
+    assert any("no categories" in sample for sample in alerts.invalid_samples)
+    assert len(alerts) == 4
 
 
 def test_severity_urgency_certainty_expires_onset_are_always_none():
@@ -86,11 +92,13 @@ def test_id_is_stable_across_two_independent_parses():
     assert [a.id for a in first] == [a.id for a in second]
 
 
-def test_missing_event_id_raises():
+def test_missing_event_id_is_quarantined():
     payload = json.loads(json.dumps(FIXTURE))
     del payload["events"][0]["id"]
-    with pytest.raises(ValueError, match="no id"):
-        EonetAdapter().parse(payload, NOW)
+    alerts = EonetAdapter().parse(payload, NOW)
+    assert alerts.invalid_count == 1
+    assert any("no id" in sample for sample in alerts.invalid_samples)
+    assert len(alerts) == 4
 
 
 def test_geometry_uses_the_single_geometry_when_only_one_exists():
@@ -131,14 +139,46 @@ def test_sent_matches_the_same_geometry_that_was_chosen():
     assert storm.sent == expected
 
 
-def test_naive_geometry_date_raises_rather_than_assuming_utc():
+def test_naive_geometry_date_is_quarantined_rather_than_assuming_utc():
     payload = json.loads(json.dumps(FIXTURE))
     payload["events"][0]["geometries"][0]["date"] = "2026-08-16T15:55:00"
-    with pytest.raises(ValueError, match="no UTC offset"):
-        EonetAdapter().parse(payload, NOW)
+    alerts = EonetAdapter().parse(payload, NOW)
+    assert alerts.invalid_count == 1
+    assert any("no UTC offset" in sample for sample in alerts.invalid_samples)
+    assert len(alerts) == 4
+
+
+def test_one_malformed_event_among_valid_ones_is_quarantined_not_fatal():
+    payload = json.loads(json.dumps(FIXTURE))
+    payload["events"][0]["categories"] = []
+    alerts = EonetAdapter().parse(payload, NOW)
+    assert len(alerts) == 4
+    assert alerts.invalid_count == 1
+
+
+def test_all_events_malformed_yields_empty_list_and_full_invalid_count():
+    payload = json.loads(json.dumps(FIXTURE))
+    for event in payload["events"]:
+        event["categories"] = []
+    alerts = EonetAdapter().parse(payload, NOW)
+    assert alerts == []
+    assert alerts.invalid_count == len(payload["events"])
+
+
+@respx.mock
+def test_fetch_quarantines_one_bad_record_and_still_returns_the_rest():
+    payload = json.loads(json.dumps(FIXTURE))
+    payload["events"][0]["categories"] = []
+    respx.get(EonetAdapter.URL).mock(return_value=httpx.Response(200, json=payload))
+    result = EonetAdapter().fetch()
+    assert result.ok is True
+    assert len(result.alerts) == 4
+    assert result.invalid_count == 1
+    assert len(result.invalid_samples) == 1
 
 
 def test_missing_events_list_raises_rather_than_reporting_zero_alerts():
+    """Quarantine must not weaken the envelope check."""
     with pytest.raises(ValueError, match="no events list"):
         EonetAdapter().parse({"title": "x"}, NOW)
 

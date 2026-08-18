@@ -164,16 +164,22 @@ def test_id_is_derived_from_capurl_not_the_geoserver_fid():
     assert first.id == f"wmo-swic:{capurl}"
 
 
-def test_feature_without_capurl_raises_rather_than_using_the_fid():
+def test_feature_without_capurl_is_quarantined_rather_than_using_the_fid():
+    """D3: a malformed record is skipped and counted, not allowed to
+    abort the whole fetch. capurl is never invented from the fid."""
     payload = _collection(_feature("effective_warning_view.fid--abc", None))
-    with pytest.raises(ValueError, match="capurl"):
-        SwicAdapter().parse(payload, NOW)
+    alerts = SwicAdapter().parse(payload, NOW)
+    assert alerts == []
+    assert alerts.invalid_count == 1
+    assert any("capurl" in sample for sample in alerts.invalid_samples)
 
 
-def test_unparseable_capurl_raises_rather_than_guessing_authority():
+def test_unparseable_capurl_is_quarantined_rather_than_guessing_authority():
     payload = _collection(_feature("f1", "NOT-A-CAP-PATH/2026/08/17/x.xml"))
-    with pytest.raises(ValueError, match="authority"):
-        SwicAdapter().parse(payload, NOW)
+    alerts = SwicAdapter().parse(payload, NOW)
+    assert alerts == []
+    assert alerts.invalid_count == 1
+    assert any("authority" in sample for sample in alerts.invalid_samples)
 
 
 def test_naive_sent_timestamp_raises_rather_than_assuming_local_time():
@@ -294,13 +300,15 @@ def test_fetch_reports_error_without_raising():
     assert "500" in result.error
 
 
-def test_feature_without_properties_fails_loudly():
+def test_feature_without_properties_is_quarantined():
     bad = {"type": "FeatureCollection", "features": [{"type": "Feature", "id": "f1"}]}
-    with pytest.raises(ValueError, match="no properties"):
-        SwicAdapter().parse(bad, NOW)
+    alerts = SwicAdapter().parse(bad, NOW)
+    assert alerts == []
+    assert alerts.invalid_count == 1
+    assert any("no properties" in sample for sample in alerts.invalid_samples)
 
 
-def test_feature_without_event_fails_loudly():
+def test_feature_without_event_is_quarantined():
     bad = {
         "type": "FeatureCollection",
         "features": [{
@@ -308,8 +316,52 @@ def test_feature_without_event_fails_loudly():
             "properties": {"capurl": "xx-test-en/a.xml", "sent": "2026-08-17T00:00:00Z"},
         }],
     }
-    with pytest.raises(ValueError, match="no event"):
-        SwicAdapter().parse(bad, NOW)
+    alerts = SwicAdapter().parse(bad, NOW)
+    assert alerts == []
+    assert alerts.invalid_count == 1
+    assert any("no event" in sample for sample in alerts.invalid_samples)
+
+
+def test_one_malformed_feature_among_valid_ones_is_quarantined_not_fatal():
+    """D3: one bad record must never discard the good ones in the same
+    fetch. The valid features are returned; the bad one is counted and
+    sampled."""
+    good1 = _feature("f1", "xx-test-en/a.xml")
+    bad = _feature("f2", None)
+    good2 = _feature("f3", "xx-test-en/b.xml")
+    alerts = SwicAdapter().parse(_collection(good1, bad, good2), NOW)
+    assert len(alerts) == 2
+    assert alerts.invalid_count == 1
+    assert any("capurl" in sample for sample in alerts.invalid_samples)
+
+
+def test_all_features_malformed_yields_empty_list_and_full_invalid_count():
+    bad1 = _feature("f1", None)
+    bad2 = _feature("f2", None)
+    alerts = SwicAdapter().parse(_collection(bad1, bad2), NOW)
+    assert alerts == []
+    assert alerts.invalid_count == 2
+
+
+@respx.mock
+def test_fetch_quarantines_one_bad_record_and_still_returns_the_rest():
+    good1 = _feature("f1", "xx-test-en/a.xml")
+    bad = _feature("f2", None)
+    good2 = _feature("f3", "xx-test-en/b.xml")
+    payload = _collection(good1, bad, good2)
+    respx.get(SwicAdapter.URL).mock(return_value=httpx.Response(200, json=payload))
+    result = SwicAdapter().fetch()
+    assert result.ok is True
+    assert len(result.alerts) == 2
+    assert result.invalid_count == 1
+    assert len(result.invalid_samples) == 1
+
+
+def test_malformed_envelope_still_fails_the_whole_fetch():
+    """Quarantine must not weaken the envelope check: a response that is
+    not a valid GeoJSON FeatureCollection at all still fails loudly."""
+    with pytest.raises(ValueError, match="FeatureCollection"):
+        SwicAdapter().parse({"exceptions": [{"exceptionCode": "X"}]}, NOW)
 
 
 def test_severity_codes_as_digit_strings_still_map():
