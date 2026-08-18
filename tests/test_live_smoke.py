@@ -10,6 +10,7 @@ from alertmux.adapters.gdacs import GdacsAdapter
 from alertmux.adapters.nws import NwsAdapter
 from alertmux.adapters.swic import SwicAdapter
 from alertmux.adapters.usgs import UsgsAdapter
+from alertmux.registry import get_register
 
 pytestmark = pytest.mark.live
 
@@ -78,3 +79,15 @@ def test_eonet_live_returns_events_and_never_states_warning_concepts():
         assert alert.urgency is None
         assert alert.certainty is None
         assert alert.expires is None
+
+
+def test_wmo_register_live_returns_at_least_250_authorities():
+    """Measured 18 Aug 2026: 300 items. A wide floor rather than an
+    exact count -- WMO adds/removes entries over time and this is a
+    smoke test, not a pin on their register's exact size."""
+    authorities, fetched_at, age, error = get_register()
+    assert error is None
+    assert len(authorities) >= 250
+    assert fetched_at is not None
+    for authority in authorities:
+        assert authority.title

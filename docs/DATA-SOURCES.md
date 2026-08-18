@@ -361,10 +361,55 @@ alerts. Its value is as an authoritative coverage map: 59 of 300 authorities are
 reachable through SWIC today, and the gaps are a legitimate contribution backlog
 nobody has to be persuaded matters.
 
-Not implemented in v0.1. Planned as the registry module.
+Implemented in v0.3 as `registry.py` / `GET /authorities`.
 
 > Practical note: this host returned 0 bytes to some clients and 250KB to others.
 > If it comes back empty, change the user agent before concluding the feed is down.
+
+### The join problem — country-level only, and why
+
+Each item carries `title, link, description, guid, pubDate, author,
+iso:countrycode, raa:authorityAbbrev, cap:area, cap:geocode, cap:polygon,
+cap:value, cap:valueName, georss:box`. Two mismatches make a naive join from
+this register to alertmux's own alert data impossible at the authority level.
+
+**1. `iso:countrycode` is ISO 3166-1 alpha-3** (`NGA`, `USA`, `CYM`). Every
+alertmux authority slug (`ng-nimet`, `us-noaa`) uses the alpha-2 prefix, and
+the feed does not carry the alpha-3 → alpha-2 mapping anywhere. It cannot be
+derived by truncating the alpha-3: `NGA` → `ng` and `CHE` → `ch` happen to
+work that way, but `ZAF` → `za`, `DEU` → `de` and `GBR` → `gb` do not follow
+any rule from their alpha-3 form. `registry.py`'s `ALPHA3_TO_ALPHA2` is an
+explicit, embedded ISO 3166-1 table — not a heuristic.
+
+Some items carry a `cap:geocode` with `valueName: iso-3166-1-alpha-2` and the
+alpha-2 value directly (Nigeria's item does not; the USA's NOAA/NWS entry
+does). Measured 18 Aug 2026: only 159 of 300 items carry this geocode at
+all — including neither Nigeria's nor 140 others — so it cannot be relied on
+as the mapping source; the embedded table covers all 300.
+
+**2. `raa:authorityAbbrev` disagrees with SWIC's own abbreviation for the
+same authority.** WMO records Nigeria's agency abbreviation as `nma`
+(Nigerian Meteorological Agency); SWIC's `capurl` calls the identical
+authority `nimet`. So alertmux's own slug `ng-nimet` never reconstructs from
+`NGA` + `nma` — the two registries independently chose different short names
+for the same agency, and there is no transform between them. Verified: the
+one case where WMO's abbrev agrees with alertmux's own slug suffix is
+`us-noaa` (WMO: `noaa`). That is not evidence the join generally works — it
+is the coincidence that makes the failure easy to miss. Measured: the
+register holds 300 authorities across 199 countries; alertmux's live alerts
+carry 56 authorities across 52 alpha-2 country prefixes, and country-level
+overlap between those two sets is real and useful; authority-level overlap
+cannot be asserted without inventing a mapping nobody publishes.
+
+**The consequence.** `GET /authorities` joins at country level only.
+`countries_covered` / `countries_uncovered` compare the register's mapped
+alpha-2 codes against the country prefix of authorities that actually
+returned an alert this fetch. Each register entry also carries
+`matched_authority`, populated only when `"{alpha2}-{abbrev}"` exactly
+equals an authority slug seen this fetch (so `us-noaa` matches, `ng-nimet`
+does not) — this is the deliberately rare, honest case, never generalised
+into a claim the data cannot support. See docs/DECISIONS.md for the
+decision record and its reasoning.
 
 ---
 

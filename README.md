@@ -35,6 +35,14 @@ uvicorn alertmux.api:app --reload
 - `GET /sources` — discovery: what alertmux covers and what it misses. Per-source
   identity, structural gaps, authorities actually seen, and `hazard_coverage` /
   `uncovered_hazards` (a heuristic keyword classification — see `sources.py`).
+- `GET /authorities` — the WMO Register of Alerting Authorities: 300 official
+  alerting authorities across 199 countries, a directory of who is *allowed*
+  to issue CAP alerts, not a source of alerts itself. Optional
+  `?country=` (alpha-2 or alpha-3). `countries_covered` / `countries_uncovered`
+  join at country level only — WMO's own authority abbreviations disagree
+  with the ones alertmux's sources use, so authority-level matching is
+  refused; see `registry.py` and `docs/DECISIONS.md`. Cached with a long TTL;
+  `register_cache_age_seconds` always reports how stale the served copy is.
 
 Any response where a source failed, returned fewer alerts than it holds, or
 quarantined one or more unparseable records sets `partial: true`. Incomplete

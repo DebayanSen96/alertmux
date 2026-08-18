@@ -15,6 +15,12 @@ from fastapi.responses import JSONResponse
 
 from alertmux.adapters import default_adapters
 from alertmux.query import AlertsResponse, collect
+from alertmux.registry import (
+    AuthoritiesResponse,
+    RegisterUnavailable,
+    build_authorities_response,
+    get_register,
+)
 from alertmux.schema import DISCLAIMER
 from alertmux.sources import SourcesResponse, build_sources_response
 
@@ -148,3 +154,53 @@ def sources(adapters=Depends(get_adapters)) -> SourcesResponse:
     """
     result = _collect_shared(adapters)
     return build_sources_response(adapters, result)
+
+
+@app.get("/authorities")
+def authorities(
+    country: str | None = None, adapters=Depends(get_adapters)
+) -> AuthoritiesResponse:
+    """The WMO Register of Alerting Authorities -- a coverage map, not a
+    source of alerts.
+
+    This lists official alerting authorities and the CAP categories
+    each covers; it never carries a warning itself. `?country=` accepts
+    either an alpha-2 (`NG`) or alpha-3 (`NGA`) code.
+
+    `countries_covered`/`countries_uncovered` are joined at country
+    level only, never authority level -- WMO's own authority
+    abbreviations (`raa:authorityAbbrev`) disagree with the ones this
+    project's sources use (Nigeria: WMO's `nma` vs SWIC's `nimet`), so
+    no cross-source authority match can be asserted in general. See
+    `registry.py`'s module docstring and DECISIONS.md for the full
+    reasoning. Each entry's `matched_authority` is set only where an
+    exact reconstruction happens to hold (e.g. `us-noaa`) -- everything
+    else is `null`, meaning *unmatched*, which is a distinct claim from
+    "uncovered": an authority alertmux cannot prove a link for is not
+    the same as a country nobody warns for.
+
+    The register is cached with a long TTL (it changes rarely) and
+    `register_cache_age_seconds` always reports how old the served copy
+    is. If the live fetch fails, the last cache is served with
+    `register_fetch_error` set; with no cache at all, this returns a
+    clear 503 error rather than an empty authorities list.
+    """
+    try:
+        register_authorities, fetched_at, age, fetch_error = get_register()
+    except RegisterUnavailable as exc:
+        return JSONResponse(
+            status_code=503,
+            content={"error": str(exc), "disclaimer": DISCLAIMER},
+        )
+
+    # Coverage is measured, never declared: same cached, read-only
+    # collect path /sources uses (D9).
+    result = _collect_shared(adapters)
+    return build_authorities_response(
+        register_authorities,
+        fetched_at,
+        age,
+        fetch_error,
+        result,
+        country=country,
+    )

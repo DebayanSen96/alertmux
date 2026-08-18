@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Trimmed sample of https://alertingauthority.wmo.int/rss.xml, captured
+18 Aug 2026. Real entries, not synthesized; see docs/DATA-SOURCES.md's
+"WMO Register of Alerting Authorities" section for how this was pulled.
+
+Covers the cases the join problem needs:
+  * Nigeria (NGA to ng): raa:authorityAbbrev "nma" disagrees with SWIC's
+    "nimet"; proves authority-level matching cannot be reconstructed.
+  * USA (USA to us), NOAA/NWS: abbrev "noaa" happens to agree with our
+    "us-noaa" source id, the one case where a naive join would work,
+    which is exactly why it is dangerous to generalise from it.
+  * Germany (DEU to de): a country we do not carry any alerts for.
+  * South Africa (ZAF to za), United Kingdom (GBR to gb): more alpha-3
+    round-trip cases for the mapping table test.
+  * EUMETNET (EUM): not a country at all, an alpha-3 the embedded
+    table cannot and should not map. Proves unmappable codes surface
+    rather than vanish.
+  * Saint Vincent and the Grenadines / Caribbean Meteorological
+    Organization: one of the 3 real entries in the live register with
+    no raa:authorityAbbrev at all.
+-->
+<rss version="2.0"
+     xmlns:iso="http://www.itu.int/tML/tML-ISO-3166"
+     xmlns:cap="urn:oasis:names:tc:emergency:cap:1.1"
+     xmlns:georss="http://www.georss.org/georss"
+     xmlns:raa="http://www.oid-info.com/get/2.49.0">
+  <channel>
+    <title>WMO Register of Alerting Authorities</title>
+    <link>https://alertingauthority.wmo.int/rss.xml</link>
+    <description>WMO Register of Alerting Authorities</description>
+
+    <item>
+      <title>Nigeria: Nigerian Meteorological Agency</title>
+      <iso:countrycode>NGA</iso:countrycode>
+      <link>https://alertingauthority.wmo.int/authorities.php?recId=119</link>
+      <description>A WMO Member [Nigeria] identifies Nigerian Meteorological Agency as an alerting authority for hazard threats of these CAP categories:  Geo Met Safety Security Health Env Transport CBRNE.</description>
+      <pubDate>Tue, 06 Dec 2022 09:10:19 +0000</pubDate>
+      <guid>urn:oid:2.49.0.0.566.0</guid>
+      <author>w.ibrahim@nimet.gov.ng</author>
+      <cap:capAlertFeed xml:lang="en">https://cap-sources.s3.amazonaws.com/ng-nimet-en/rss.xml</cap:capAlertFeed>
+      <raa:authorityAbbrev>nma</raa:authorityAbbrev>
+    </item>
+
+    <item>
+      <title>United States of America: National Oceanic and Atmospheric Administration (NOAA), National Weather Service </title>
+      <iso:countrycode>USA</iso:countrycode>
+      <link>https://alertingauthority.wmo.int/authorities.php?recId=177</link>
+      <description>A WMO Member [United States of America] identifies National Oceanic and Atmospheric Administration (NOAA), National Weather Service  as an alerting authority for hazard threats of these CAP categories: Geo Met Fire Health Env CBRNE.</description>
+      <pubDate>Mon, 21 Nov 2022 06:23:00 +0000</pubDate>
+      <guid>urn:oid:2.49.0.0.840.0</guid>
+      <author>wmoraa@wmo.int</author>
+      <cap:area>
+        <cap:polygon>73,-176 11,-176 11,-61 73,-61 73,-176</cap:polygon>
+        <cap:geocode>
+          <cap:valueName>iso-3166-1-alpha-2</cap:valueName>
+          <cap:value>US</cap:value>
+        </cap:geocode>
+      </cap:area>
+      <georss:box>11 -176 73 -61</georss:box>
+      <raa:capAlertFeed xml:lang="en">https://alerts.weather.gov/cap/us.php?x=0</raa:capAlertFeed>
+      <raa:authorityAbbrev>noaa</raa:authorityAbbrev>
+    </item>
+
+    <item>
+      <title>Germany: Federal Institute of Hydrology</title>
+      <iso:countrycode>DEU</iso:countrycode>
+      <link>https://alertingauthority.wmo.int/authorities.php?recId=59</link>
+      <description>A WMO Member [Germany] identifies Federal Institute of Hydrology as an alerting authority for hazard threats of these CAP categories: Met.</description>
+      <pubDate>Wed, 19 Mar 2025 06:47:00 +0000</pubDate>
+      <guid>urn:oid:2.49.0.0.276.1</guid>
+      <author>karolin.eichler@dwd.de</author>
+      <raa:capAlertFeed xml:lang="de">https://www.hochwasserzentralen.de/rss</raa:capAlertFeed>
+      <raa:authorityAbbrev>fih</raa:authorityAbbrev>
+    </item>
+
+    <item>
+      <title>South Africa: South African Weather Service</title>
+      <iso:countrycode>ZAF</iso:countrycode>
+      <link>https://alertingauthority.wmo.int/authorities.php?recId=152</link>
+      <description>A WMO Member [South Africa] identifies South African Weather Service as an alerting authority for hazard threats of these CAP categories:  Met.</description>
+      <pubDate>Sun, 12 May 2019 08:08:21 +0000</pubDate>
+      <guid>urn:oid:2.49.0.0.710.0</guid>
+      <author>Reagan.Rakau@weathersa.co.za</author>
+      <cap:area>
+        <cap:polygon>-21,14 -36,14 -36,34 -21,34 -21,14</cap:polygon>
+        <cap:geocode>
+          <cap:valueName>iso-3166-1-alpha-2</cap:valueName>
+          <cap:value>ZA</cap:value>
+        </cap:geocode>
+      </cap:area>
+      <georss:box>-36 14 -21 34</georss:box>
+      <raa:capAlertFeed xml:lang="en">http://caps.weathersa.co.za/Home/RssFeed</raa:capAlertFeed>
+      <raa:authorityAbbrev>saws</raa:authorityAbbrev>
+    </item>
+
+    <item>
+      <title>United Kingdom of Great Britain and Northern Ireland: Met Office</title>
+      <iso:countrycode>GBR</iso:countrycode>
+      <link>https://alertingauthority.wmo.int/authorities.php?recId=174</link>
+      <description>A WMO Member [United Kingdom of Great Britain and Northern Ireland] identifies Met Office as an alerting authority for hazard threats of these CAP categories:  Geo Met Safety Security Fire Health Env Transport Infra CBRNE.</description>
+      <pubDate>Tue, 28 Apr 2026 03:07:06 +0000</pubDate>
+      <guid>urn:oid:2.49.0.0.826.0</guid>
+      <author>steven.callaghan@metoffice.gov.uk</author>
+      <cap:area>
+        <cap:polygon>60.85,-8.63 49.85,-8.63 49.85,1.77 60.85,1.77 60.85,-8.63</cap:polygon>
+        <cap:geocode>
+          <cap:valueName>iso-3166-1-alpha-2</cap:valueName>
+          <cap:value>GB</cap:value>
+        </cap:geocode>
+      </cap:area>
+      <georss:box>49.85 -8.63 60.85 1.77</georss:box>
+      <raa:capAlertFeed xml:lang="en">https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-united-kingdom</raa:capAlertFeed>
+      <raa:authorityAbbrev>met-office</raa:authorityAbbrev>
+    </item>
+
+    <item>
+      <title>EUMETNET: EUMETNET</title>
+      <iso:countrycode>EUM</iso:countrycode>
+      <link>https://alertingauthority.wmo.int/authorities.php?recId=284</link>
+      <description>A WMO Member [EUMETNET] identifies EUMETNET as an alerting authority for hazard threats of these CAP categories:  Met.</description>
+      <pubDate>Sun, 15 Jul 2018 21:18:10 +0000</pubDate>
+      <guid>urn:oid:2.49.0.2.0</guid>
+      <author>alexander.beck@zamg.ac.at</author>
+      <cap:area>
+        <cap:polygon>71,-25 33,-25 33,35 71,35 71,-25</cap:polygon>
+        <cap:geocode>
+          <cap:valueName>iso-3166-1-alpha-2</cap:valueName>
+          <cap:value>EU</cap:value>
+        </cap:geocode>
+      </cap:area>
+      <georss:box>33 -25 71 35</georss:box>
+    </item>
+
+    <item>
+      <title>Saint Vincent and the Grenadines: Caribbean Meteorological Organization</title>
+      <iso:countrycode>VCT</iso:countrycode>
+      <link>https://alertingauthority.wmo.int/authorities.php?recId=303</link>
+      <description>A WMO Member [Saint Vincent and the Grenadines] identifies Caribbean Meteorological Organization as an alerting authority for hazard threats.</description>
+      <pubDate>Mon, 05 Feb 2024 13:09:52 +0000</pubDate>
+      <guid>urn:oid:2.49.0.0.670.0</guid>
+      <author>kkerr@cmo.org.tt</author>
+      <cap:area>
+        <cap:polygon>13.5647222,-61.61888888888889 12.5736111,-61.61888888888889 12.5736111,-60.44027749999999 13.5647222,-60.44027749999999 13.5647222,-61.61888888888889</cap:polygon>
+        <cap:geocode>
+          <cap:valueName>iso-3166-1-alpha-2</cap:valueName>
+          <cap:value>VC</cap:value>
+        </cap:geocode>
+      </cap:area>
+      <georss:box>12.5736111 -61.61888888888889 13.5647222 -60.44027749999999</georss:box>
+      <raa:capAlertFeed xml:lang="en">https://www.alert-hub.org/feedFacade/sourcefeed/feed/vc-ms-en</raa:capAlertFeed>
+    </item>
+
+  </channel>
+</rss>

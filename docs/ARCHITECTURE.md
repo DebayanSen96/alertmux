@@ -28,6 +28,7 @@ One direction. No writes to any external system. No state except a 60-second cac
 | `query.py` | Aggregation, partial-result labelling |
 | `dedupe.py` | Cross-source duplicate reporting — never merges or drops |
 | `sources.py` | `/sources` report: structural gaps, authorities seen, heuristic hazard coverage |
+| `registry.py` | `/authorities` — WMO Register of Alerting Authorities (directory, not alerts), embedded ISO 3166-1 alpha-3→alpha-2 table, country-level coverage join, long-TTL cache |
 | `api.py` | FastAPI, TTL cache, HTTP status semantics |
 | `mcp_server.py` | MCP presentation (optional `mcp` extra) — four tools over the same cached `collect()` path |
 

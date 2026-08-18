@@ -355,6 +355,62 @@ it would only show up as a Claude conversation confidently reporting "no
 alerts" when a source was actually down, which is much harder to catch
 than a failing assertion.
 
+## D15 — `/authorities` joins the WMO register to alertmux's own coverage at country level, never authority level
+
+**Decision.** `registry.py` computes `countries_covered` /
+`countries_uncovered` by mapping each register entry's ISO 3166-1 alpha-3
+`iso:countrycode` to alpha-2 through an embedded table, then comparing
+against the alpha-2 prefix of authorities that returned an alert in the
+current fetch. It does **not** attempt to prove a register entry corresponds
+to a specific alertmux source by reconstructing an authority slug, except as
+a best-effort, exact-match-only `matched_authority` field that is expected
+to stay null for most entries.
+
+**Why.** Investigated 18 Aug 2026 (see docs/DATA-SOURCES.md's join-problem
+section). Two independent obstacles rule out an authority-level join:
+
+1. The register's alpha-3 country codes have no alpha-2 mapping in the feed,
+   and the mapping cannot be derived by truncation (`ZAF` ≠ `za`'s first two
+   letters of anything derivable from `ZAF` itself; `DEU` → `de`, `GBR` →
+   `gb` — none of these follow a rule). This is solved by an embedded ISO
+   3166-1 table, not a design compromise.
+2. `raa:authorityAbbrev` disagrees with the abbreviation alertmux's own
+   sources use for the identical authority. WMO records Nigeria's agency as
+   `nma`; SWIC's `capurl` calls it `nimet`. `us-noaa` is the one case where
+   the two abbreviations happen to agree — not evidence the join works in
+   general, but the exact coincidence that would make a lazier
+   implementation look correct in testing and wrong in production.
+
+Country is a reliable join key once alpha-3 is mapped to alpha-2; authority
+identity is not, because two different organisations (WMO and SWIC)
+independently invented different short names for the same real-world agency
+and neither is wrong — they simply never agreed on one.
+
+**Never claim an authority-level match you cannot prove (principle 2,
+extended).** A register entry alertmux cannot link to a carried source is
+reported as **unmatched** (`matched_authority: null`), which is a distinct
+claim from "uncovered." Nigeria's WMO entry is unmatched even when
+`ng-nimet` alerts are present and Nigeria itself is `covered` — the country
+has warnings; the *specific WMO listing* simply cannot be proven to be the
+*specific* source alertmux carries, only that some source for that country
+exists. Collapsing "unmatched" into "uncovered" would misreport countries
+alertmux actually covers as gaps, and collapsing "unmatched" into "matched"
+would assert an authority-level link this data cannot support — both
+failure directions this project exists to avoid (principle 4).
+
+**Cost of being wrong.** Guessing an authority-level match (e.g. fuzzy
+string matching WMO's abbreviation against alertmux's) risks silently
+linking two different agencies that happen to have similar short names —
+worse than the honest gap, because it looks like verified coverage. An
+unmatched entry costs nothing but an accurate `null`; a wrongly matched one
+would misinform anyone deciding whether a given register authority is
+already covered.
+
+**What would justify changing it.** A published, authoritative WMO-to-SWIC
+(or WMO-to-alertmux) authority identifier crosswalk — not a heuristic this
+project invents, since inventing one is exactly the failure mode this
+decision refuses.
+
 ---
 
 ## Things we got wrong, kept here on purpose
