@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 
 from alertmux.adapters.base import FetchResult
-from alertmux.api import app, get_adapters
+from alertmux.api import app, clear_cache, get_adapters
 from alertmux.schema import NormalisedAlert, Provenance
 
 NOW = datetime(2026, 8, 17, 12, 0, tzinfo=timezone.utc)
@@ -44,6 +44,7 @@ def _client(adapters):
 
 def teardown_function():
     app.dependency_overrides.clear()
+    clear_cache()
 
 
 def test_alerts_returns_normalised_alerts():
@@ -104,3 +105,90 @@ def test_health_ok_when_all_sources_healthy():
 def test_health_does_not_return_alert_bodies():
     client = _client([FakeAdapter("wmo-swic", alerts=[_alert()])])
     assert "alerts" not in client.get("/health").json()
+
+
+def setup_function():
+    clear_cache()
+
+
+def test_health_returns_503_when_any_source_is_down():
+    """{"ok": false} at HTTP 200 reads green to every standard monitor."""
+    client = _client([
+        FakeAdapter("wmo-swic", alerts=[_alert()]),
+        FakeAdapter("usgs", ok=False, error="timeout"),
+    ])
+    response = client.get("/health")
+    assert response.status_code == 503
+    assert response.json()["ok"] is False
+
+
+def test_health_returns_200_when_all_sources_healthy():
+    client = _client([FakeAdapter("wmo-swic", alerts=[_alert()])])
+    assert client.get("/health").status_code == 200
+
+
+def test_unknown_authority_lists_the_authorities_actually_present():
+    """A typo and a quiet day both return zero alerts. In this domain
+    that ambiguity is a dangerous false negative."""
+    client = _client([FakeAdapter("wmo-swic", alerts=[_alert()])])
+    body = client.get("/alerts?authority=typo-does-not-exist").json()
+    assert body["alerts"] == []
+    assert body["available_authorities"] == ["ng-nimet"]
+
+
+def test_known_authority_does_not_list_available_authorities():
+    client = _client([FakeAdapter("wmo-swic", alerts=[_alert()])])
+    body = client.get("/alerts?authority=ng-nimet").json()
+    assert len(body["alerts"]) == 1
+    assert body["available_authorities"] is None
+
+
+def test_both_endpoints_state_the_relay_disclaimer_in_the_body():
+    client = _client([FakeAdapter("wmo-swic", alerts=[_alert()])])
+    assert "not a substitute" in client.get("/alerts").json()["disclaimer"].lower()
+    clear_cache()
+    assert "not a substitute" in client.get("/health").json()["disclaimer"].lower()
+
+
+def test_truncated_source_makes_the_api_response_partial():
+    truncated = FetchResult(
+        source_id="wmo-swic", ok=True, alerts=[_alert()],
+        retrieved_at=NOW, latency_ms=5, truncated=True, matched=2133, returned=1,
+    )
+
+    class Trunc:
+        source_id = "wmo-swic"
+
+        def fetch(self):
+            return truncated
+
+    body = _client([Trunc()]).get("/alerts").json()
+    assert body["partial"] is True
+
+
+def test_repeat_calls_within_the_ttl_do_not_refetch_the_sources():
+    class Counting:
+        source_id = "wmo-swic"
+
+        def __init__(self):
+            self.calls = 0
+
+        def fetch(self):
+            self.calls += 1
+            return FetchResult(
+                source_id=self.source_id, ok=True, alerts=[_alert()],
+                retrieved_at=NOW, latency_ms=1,
+            )
+
+    adapter = Counting()
+    client = _client([adapter])
+    client.get("/health")
+    client.get("/health")
+    client.get("/alerts")
+    assert adapter.calls == 1
+
+
+def test_filtering_a_cached_response_does_not_poison_the_next_call():
+    client = _client([FakeAdapter("wmo-swic", alerts=[_alert()])])
+    assert client.get("/alerts?authority=us-noaa").json()["alerts"] == []
+    assert len(client.get("/alerts").json()["alerts"]) == 1

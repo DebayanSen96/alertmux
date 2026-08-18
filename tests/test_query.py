@@ -98,3 +98,36 @@ def test_all_sources_down_returns_empty_and_partial():
     ])
     assert response.alerts == []
     assert response.partial is True
+
+
+class TruncatedAdapter:
+    """ok=True, but the source held more alerts than it returned."""
+
+    source_id = "wmo-swic"
+
+    def fetch(self):
+        return FetchResult(
+            source_id=self.source_id,
+            ok=True,
+            alerts=[_alert("wmo-swic:1", "wmo-swic")],
+            retrieved_at=NOW,
+            latency_ms=10,
+            truncated=True,
+            matched=2133,
+            returned=1,
+        )
+
+
+def test_truncated_but_ok_source_makes_the_response_partial():
+    """Dropping alerts while reporting partial=false is silent partial
+    success — the exact failure this project exists to prevent."""
+    response = collect([TruncatedAdapter()])
+    assert response.sources[0].ok is True
+    assert response.sources[0].truncated is True
+    assert response.sources[0].matched == 2133
+    assert response.partial is True
+
+
+def test_response_carries_the_relay_disclaimer():
+    response = collect([FakeAdapter("a")])
+    assert "not a substitute" in response.disclaimer.lower()

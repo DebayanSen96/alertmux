@@ -90,3 +90,104 @@ def test_fetch_reports_timeout_without_raising():
     result = UsgsAdapter().fetch()
     assert result.ok is False
     assert "timed out" in result.error.lower() or "timeout" in result.error.lower()
+
+
+from alertmux.schema import NormalisedAlert  # noqa: E402
+
+
+def _feature(**prop_overrides) -> dict:
+    props = {
+        "mag": 2.27,
+        "place": "6 km SE of Chickasha, Oklahoma",
+        "time": 1787009589944,
+        "url": "https://earthquake.usgs.gov/earthquakes/eventpage/ok1",
+        "alert": None,
+        "type": "earthquake",
+        "title": "M 2.3 - somewhere",
+    }
+    props.update(prop_overrides)
+    for key, value in list(props.items()):
+        if value is _ABSENT:
+            del props[key]
+    return {
+        "type": "Feature", "id": "ok1",
+        "geometry": {"type": "Point", "coordinates": [0.0, 0.0, 0.0]},
+        "properties": props,
+    }
+
+
+class _Absent:
+    pass
+
+
+_ABSENT = _Absent()
+
+
+def _collection(*features) -> dict:
+    return {"type": "FeatureCollection", "features": list(features)}
+
+
+def test_event_type_is_never_defaulted_to_earthquake():
+    """The feed also emits quarry blast, explosion, ice quake and sonic
+    boom. Defaulting would assert a quarry blast was an earthquake."""
+    with pytest.raises(ValueError, match="no type"):
+        UsgsAdapter().parse(_collection(_feature(type=_ABSENT)), NOW)
+    with pytest.raises(ValueError, match="no type"):
+        UsgsAdapter().parse(_collection(_feature(type="")), NOW)
+
+
+def test_non_earthquake_event_type_passes_through_verbatim():
+    alert = UsgsAdapter().parse(_collection(_feature(type="quarry blast")), NOW)[0]
+    assert alert.event == "quarry blast"
+
+
+def test_description_is_none_not_a_copy_of_the_headline():
+    """USGS has no description field. None must mean the same thing here
+    as it does for SWIC: the source supplied nothing."""
+    alert = UsgsAdapter().parse(FIXTURE, NOW)[0]
+    assert alert.description is None
+    assert "description" in alert.unavailable_fields
+    assert alert.headline == "M 2.3 - 6 km SE of Chickasha, Oklahoma"
+
+
+def test_unavailable_fields_is_exhaustive_in_both_directions():
+    optional = [
+        name for name in NormalisedAlert.model_fields
+        if name not in {"id", "event", "provenance", "unavailable_fields"}
+    ]
+    payloads = [
+        FIXTURE,
+        # place is genuinely null for deep-ocean events; title and
+        # geometry can also be absent.
+        _collection(_feature(place=None, title=None)),
+        _collection(dict(_feature(), geometry=None)),
+    ]
+    for payload in payloads:
+        for alert in UsgsAdapter().parse(payload, NOW):
+            for name in alert.unavailable_fields:
+                assert getattr(alert, name) is None, name
+            for name in optional:
+                if getattr(alert, name) is None:
+                    assert name in alert.unavailable_fields, name
+
+
+def test_empty_feature_list_is_zero_alerts_not_an_error():
+    assert UsgsAdapter().parse(_collection(), NOW) == []
+
+
+def test_non_featurecollection_200_raises_rather_than_reporting_zero_quakes():
+    with pytest.raises(ValueError, match="FeatureCollection"):
+        UsgsAdapter().parse({"exceptions": [{"exceptionCode": "X"}]}, NOW)
+
+
+@respx.mock
+def test_fetch_reports_non_geojson_200_as_a_failure():
+    respx.get(UsgsAdapter.URL).mock(
+        return_value=httpx.Response(
+            200, json={"exceptions": [{"exceptionCode": "InvalidParameterValue"}]}
+        )
+    )
+    result = UsgsAdapter().fetch()
+    assert result.ok is False
+    assert result.error is not None
+    assert result.alerts == []

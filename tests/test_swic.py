@@ -3,9 +3,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
+import pytest
 import respx
 
 from alertmux.adapters.swic import SwicAdapter
+from alertmux.schema import NormalisedAlert
 
 FIXTURE = json.loads(
     (Path(__file__).parent / "fixtures" / "swic_effective.json").read_text()
@@ -20,10 +22,15 @@ def test_params_always_request_the_effective_view():
     assert params["outputFormat"] == "json"
 
 
-def test_params_always_paginate():
-    """Unfiltered SWIC queries exceed 24MB and time out."""
-    params = SwicAdapter().build_params(mem=None, max_features=500)
-    assert params["maxFeatures"] == 500
+def test_params_always_send_maxfeatures():
+    """Unfiltered SWIC queries exceed 24MB and time out.
+
+    This only checks that maxFeatures is always present in the request -
+    it does not, and cannot, prove the whole result set was retrieved.
+    Truncation is caught by test_truncated_response_is_flagged below.
+    """
+    assert "maxFeatures" in SwicAdapter().build_params(mem=None, max_features=500)
+    assert SwicAdapter().build_params(mem=None, max_features=500)["maxFeatures"] == 500
 
 
 def test_params_filter_by_authority_when_mem_given():
@@ -118,10 +125,144 @@ def test_null_geometry_is_recorded_as_unavailable():
     assert "geometry" in alert.unavailable_fields
 
 
-def test_id_is_stable_and_source_prefixed():
-    alert = SwicAdapter().parse(FIXTURE, NOW)[0]
-    assert alert.id.startswith("wmo-swic:")
-    assert alert.id == SwicAdapter().parse(FIXTURE, NOW)[0].id
+def _feature(fid: str, capurl: str, **prop_overrides) -> dict:
+    props = {
+        "capurl": capurl,
+        "sent": "2026-08-17T00:00:00Z",
+        "event": "TEST",
+        "s": 3, "u": 3, "c": 4, "mem": "999",
+        "areadesc": "nowhere", "rlink": "",
+    }
+    props.update(prop_overrides)
+    if capurl is None:
+        props.pop("capurl")
+    return {"type": "Feature", "id": fid, "geometry": None, "properties": props}
+
+
+def _collection(*features) -> dict:
+    return {
+        "type": "FeatureCollection",
+        "numberMatched": len(features),
+        "numberReturned": len(features),
+        "features": list(features),
+    }
+
+
+def test_id_is_derived_from_capurl_not_the_geoserver_fid():
+    """GeoServer synthetic fids embed a REQUEST timestamp and change on
+    every fetch. The same alert must keep the same id, or the notifier's
+    dedupe key breaks and every poll re-notifies.
+    """
+    capurl = "ng-nimet-en/2026/08/17/14/50/16-e28162fa92b40b8a59c979ba00b562e9.xml"
+    first = SwicAdapter().parse(
+        _collection(_feature("effective_warning_view.fid--7463f54d_x_2d5b", capurl)), NOW
+    )[0]
+    second = SwicAdapter().parse(
+        _collection(_feature("effective_warning_view.fid--7463f54d_x_2d5c", capurl)), NOW
+    )[0]
+    assert first.id == second.id
+    assert first.id == f"wmo-swic:{capurl}"
+
+
+def test_feature_without_capurl_raises_rather_than_using_the_fid():
+    payload = _collection(_feature("effective_warning_view.fid--abc", None))
+    with pytest.raises(ValueError, match="capurl"):
+        SwicAdapter().parse(payload, NOW)
+
+
+def test_unparseable_capurl_raises_rather_than_guessing_authority():
+    payload = _collection(_feature("f1", "NOT-A-CAP-PATH/2026/08/17/x.xml"))
+    with pytest.raises(ValueError, match="authority"):
+        SwicAdapter().parse(payload, NOW)
+
+
+def test_naive_sent_timestamp_raises_rather_than_assuming_local_time():
+    """astimezone() on a naive value silently applies the SERVER's offset,
+    shifting a hazard timestamp differently on every machine."""
+    from alertmux.adapters.swic import _iso_utc
+
+    with pytest.raises(ValueError, match="offset"):
+        _iso_utc("2026-08-17T06:50:16", "sent")
+    assert _iso_utc("2026-08-17T06:50:16Z", "sent") == datetime(
+        2026, 8, 17, 6, 50, 16, tzinfo=timezone.utc
+    )
+
+
+def test_headline_and_description_are_never_fabricated():
+    """The WFS list view carries neither. `rlink` points at a RELATED CAP
+    file, so surfacing it as a description would relay a filename."""
+    alerts = SwicAdapter().parse(FIXTURE, NOW)
+    for alert in alerts:
+        assert alert.headline is None
+        assert alert.description is None
+        assert "headline" in alert.unavailable_fields
+        assert "description" in alert.unavailable_fields
+
+    with_rlink = SwicAdapter().parse(
+        _collection(_feature("f1", "xx-test-en/a.xml", rlink="xx-test-en/other.xml")),
+        NOW,
+    )[0]
+    assert with_rlink.description is None
+
+
+def test_unavailable_fields_is_exhaustive_in_both_directions():
+    payloads = [FIXTURE, _collection(_feature("f1", "xx-test-en/a.xml", areadesc=None))]
+    optional = [
+        name for name in NormalisedAlert.model_fields
+        if name not in {"id", "event", "provenance", "unavailable_fields"}
+    ]
+    for payload in payloads:
+        for alert in SwicAdapter().parse(payload, NOW):
+            for name in alert.unavailable_fields:
+                assert getattr(alert, name) is None, name
+            for name in optional:
+                if getattr(alert, name) is None:
+                    assert name in alert.unavailable_fields, name
+
+
+def test_empty_feature_list_is_zero_alerts_not_an_error():
+    """A legitimately quiet feed must stay distinguishable from the
+    non-GeoJSON-200 case below."""
+    assert SwicAdapter().parse(_collection(), NOW) == []
+
+
+def test_non_featurecollection_200_raises_rather_than_reporting_zero_hazards():
+    exception_report = {"exceptions": [{"exceptionCode": "InvalidParameterValue"}]}
+    with pytest.raises(ValueError, match="FeatureCollection"):
+        SwicAdapter().parse(exception_report, NOW)
+
+
+@respx.mock
+def test_fetch_reports_ows_exception_at_200_as_a_failure():
+    """GeoServer answers a bad cql_filter with HTTP 200 and no features.
+    Parsing that as 0 alerts would report 'no hazards worldwide, healthy'.
+    """
+    respx.get(SwicAdapter.URL).mock(
+        return_value=httpx.Response(
+            200, json={"exceptions": [{"exceptionCode": "InvalidParameterValue"}]}
+        )
+    )
+    result = SwicAdapter().fetch()
+    assert result.ok is False
+    assert result.error is not None
+    assert result.alerts == []
+
+
+@respx.mock
+def test_truncated_response_is_flagged_while_staying_ok():
+    payload = dict(FIXTURE, numberMatched=2133, numberReturned=3)
+    respx.get(SwicAdapter.URL).mock(return_value=httpx.Response(200, json=payload))
+    result = SwicAdapter(max_features=3).fetch()
+    assert result.ok is True
+    assert result.truncated is True
+    assert result.matched == 2133
+    assert result.returned == 3
+
+
+@respx.mock
+def test_complete_response_is_not_flagged_as_truncated():
+    respx.get(SwicAdapter.URL).mock(return_value=httpx.Response(200, json=FIXTURE))
+    assert SwicAdapter().fetch().truncated is False
 
 
 @respx.mock
@@ -153,11 +294,19 @@ def test_fetch_reports_error_without_raising():
     assert "500" in result.error
 
 
-def test_malformed_feature_fails_loudly_rather_than_dropping_silently():
-    bad = {"type": "FeatureCollection", "features": [{"type": "Feature"}]}
-    try:
+def test_feature_without_properties_fails_loudly():
+    bad = {"type": "FeatureCollection", "features": [{"type": "Feature", "id": "f1"}]}
+    with pytest.raises(ValueError, match="no properties"):
         SwicAdapter().parse(bad, NOW)
-    except Exception as exc:
-        assert "properties" in str(exc).lower() or "event" in str(exc).lower()
-    else:
-        raise AssertionError("malformed feature must not be silently dropped")
+
+
+def test_feature_without_event_fails_loudly():
+    bad = {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature", "id": "f1", "geometry": None,
+            "properties": {"capurl": "xx-test-en/a.xml", "sent": "2026-08-17T00:00:00Z"},
+        }],
+    }
+    with pytest.raises(ValueError, match="no event"):
+        SwicAdapter().parse(bad, NOW)
