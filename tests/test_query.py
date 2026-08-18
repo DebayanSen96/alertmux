@@ -193,3 +193,42 @@ def test_collect_yields_no_groups_for_a_single_source_with_no_duplicates():
         FakeAdapter("a", alerts=[_alert("a:1", "a")]),
     ])
     assert response.duplicate_groups == []
+
+
+def _gdacs_style_alert(alert_id: str, area: str = "Angola") -> NormalisedAlert:
+    """Country-level area_description, as GDACS actually supplies it."""
+    return NormalisedAlert(
+        id=alert_id,
+        event="Wildfire",
+        area_description=area,
+        provenance=Provenance(
+            authority="gdacs",
+            source_id="gdacs",
+            source_url="https://example.test",
+            retrieved_at=NOW,
+        ),
+    )
+
+
+def test_collect_does_not_group_many_same_source_records_sharing_a_key():
+    """98 distinct GDACS wildfires in Angola, each with a different
+    alert id (i.e. a different gdacs:eventid), must never collapse into
+    one duplicate group -- and `alerts` must still report every one."""
+    fires = [_gdacs_style_alert(f"gdacs:WF:{i}:1") for i in range(5)]
+    response = collect([FakeAdapter("gdacs", alerts=fires)])
+    assert len(response.alerts) == 5
+    assert response.duplicate_groups == []
+    assert response.ambiguous_duplicate_groups == 1
+
+
+def test_collect_counts_ambiguous_groups_without_dropping_alerts():
+    fires = [_gdacs_style_alert(f"gdacs:WF:{i}:1") for i in range(3)]
+    nws_dupe = _dupe_alert("nws:1", "nws")
+    response = collect([
+        FakeAdapter("gdacs", alerts=fires),
+        FakeAdapter("nws", alerts=[nws_dupe]),
+    ])
+    # alerts total is unaffected by grouping/rejection either way.
+    assert len(response.alerts) == 4
+    assert response.ambiguous_duplicate_groups == 1
+    assert response.duplicate_groups == []

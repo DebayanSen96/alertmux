@@ -165,8 +165,20 @@ anywhere in this module, because wrongly grouping two distinct hazards is
 the failure mode a future notifier (v0.5) cannot afford. Within a group,
 `preferred_id` is the record with the most optional schema fields populated
 (ties broken by `id` for determinism), and `AlertsResponse.alerts` is
-untouched either way — `collect()` calls `group_duplicates()` purely to
-populate `duplicate_groups` alongside the full, unfiltered alert list.
+untouched either way — `collect()` calls `summarise_duplicates()` purely to
+populate `duplicate_groups` (and `ambiguous_duplicate_groups`) alongside the
+full, unfiltered alert list.
+
+**A key match alone is not enough to report a group.** Every member of a
+candidate group must also come from a different `provenance.source_id` — a
+source's own ids are authoritative about its own event distinctness, so
+two records from one source sharing a key (98 separate GDACS wildfires all
+keyed `wildfire|angola`, since `gdacs:country` is country-level — see
+DATA-SOURCES.md) mean the key is too coarse for that source, not that the
+records are duplicates. Such a candidate group is discarded entirely, and
+counted in `ambiguous_duplicate_groups` rather than silently dropped
+(principle 4). See DECISIONS.md D13's 18 Aug 2026 addendum for the
+measurement that forced this rule.
 
 ## api.py — three things worth knowing
 

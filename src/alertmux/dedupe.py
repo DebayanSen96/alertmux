@@ -9,6 +9,12 @@ It never merges and never drops. `/alerts` keeps returning every record with
 provenance intact, per principle 1 (relay, never issue) and D2 (identity is
 load-bearing for any future notifier). Merging would mean picking whose
 wording a user sees — editorialising hazard content. See DECISIONS.md D13.
+
+A candidate group is only reported when every member comes from a
+*different* `provenance.source_id` — a source's own ids are authoritative
+about its own event distinctness, so two records from the same source
+sharing a key mean the key is too coarse, not that the records are
+duplicates. See `summarise_duplicates` and DECISIONS.md D13's addendum.
 """
 
 from __future__ import annotations
@@ -97,24 +103,68 @@ def _richness(alert: NormalisedAlert) -> int:
     )
 
 
-def group_duplicates(alerts: list[NormalisedAlert]) -> list[DuplicateGroup]:
-    """Report groups of 2+ alerts that share an `event_key`.
-
-    Never merges or drops anything — the caller's alert list is untouched.
-    Grouping requires exact agreement on the normalised key; no fuzzy or
-    similarity-based matching is used anywhere in this function.
-    """
+def _bucket_by_key(
+    alerts: list[NormalisedAlert],
+) -> dict[str, list[NormalisedAlert]]:
     buckets: dict[str, list[NormalisedAlert]] = defaultdict(list)
     for alert in alerts:
         key = event_key(alert)
         if key is None:
             continue
         buckets[key].append(alert)
+    return buckets
+
+
+def summarise_duplicates(
+    alerts: list[NormalisedAlert],
+) -> tuple[list[DuplicateGroup], int]:
+    """Group candidates that share an `event_key`, then apply the
+    single-record-per-source rule.
+
+    A source's own ids are authoritative about its own event distinctness
+    (DECISIONS.md D13 addendum). If GDACS assigns two records different
+    event ids, GDACS is stating they are different events, and this
+    module must never overrule that by collapsing them onto a coarser
+    key. Cross-source duplicate detection is only meaningful *across*
+    sources — never within one.
+
+    A key candidate group is therefore only reported as a
+    `DuplicateGroup` when every member comes from a **different**
+    `provenance.source_id`. If any source contributes two or more
+    records to a candidate group, the key was too coarse for that
+    source (the textbook case: GDACS's `area_description` is
+    country-level, so 98 distinct Angola wildfires, each with its own
+    `gdacs:eventid`, all keyed to `wildfire|angola`) and the *entire*
+    group is discarded rather than reported as a false-positive pair.
+
+    Discarding is not the same as silently dropping (principle 4): the
+    second element of the returned tuple counts how many candidate
+    groups were rejected this way, so an operator can see that N
+    potential duplicates were found but could not be confidently
+    paired across sources.
+
+    Never merges or drops anything from the caller's alert list — the
+    accepted groups are purely a report. Grouping requires exact
+    agreement on the normalised key; no fuzzy or similarity-based
+    matching is used anywhere in this function.
+    """
+    buckets = _bucket_by_key(alerts)
 
     groups: list[DuplicateGroup] = []
+    ambiguous = 0
     for key in sorted(buckets):
         members = buckets[key]
         if len(members) < 2:
+            continue
+
+        source_ids = [m.provenance.source_id for m in members]
+        if len(set(source_ids)) != len(source_ids):
+            # At least one source contributed >1 record under this key,
+            # so the source's own ids disagree with our key about
+            # distinctness. That source's ids win: the whole candidate
+            # group is too coarse to trust, and is discarded rather
+            # than reported as a possibly-wrong pairing.
+            ambiguous += 1
             continue
 
         # Rank by richness, tie-broken deterministically by id so output
@@ -135,4 +185,13 @@ def group_duplicates(alerts: list[NormalisedAlert]) -> list[DuplicateGroup]:
             )
         )
 
+    return groups, ambiguous
+
+
+def group_duplicates(alerts: list[NormalisedAlert]) -> list[DuplicateGroup]:
+    """Report groups of 2+ alerts that share an `event_key` AND come from
+    mutually distinct sources. See `summarise_duplicates` for the full
+    rule and its reasoning.
+    """
+    groups, _ = summarise_duplicates(alerts)
     return groups

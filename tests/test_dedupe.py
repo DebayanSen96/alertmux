@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from alertmux.dedupe import event_key, group_duplicates
+from alertmux.dedupe import event_key, group_duplicates, summarise_duplicates
 from alertmux.schema import NormalisedAlert, Provenance
 
 NOW = datetime(2026, 8, 18, 12, 0, tzinfo=timezone.utc)
@@ -97,6 +97,57 @@ def test_tie_break_is_deterministic_across_runs():
 def test_single_record_is_not_a_group():
     a = _alert("a:1", "src-a")
     assert group_duplicates([a]) == []
+
+
+def test_two_records_same_key_same_source_not_grouped():
+    """The 98-Angola-wildfire case: GDACS sets area_description to just
+    the country name, so 98 distinct fires (each with its own
+    gdacs:eventid) all key to `wildfire|angola`. GDACS's own distinct
+    ids are authoritative -- this must never be reported as a group."""
+    a = _alert(
+        "gdacs:WF:1030038:17",
+        "gdacs",
+        event="Wildfire",
+        area_description="Angola",
+    )
+    b = _alert(
+        "gdacs:WF:1030084:21",
+        "gdacs",
+        event="Wildfire",
+        area_description="Angola",
+    )
+    assert group_duplicates([a, b]) == []
+
+
+def test_three_records_two_from_one_source_group_rejected_and_counted():
+    a = _alert("gdacs:1", "gdacs", event="Wildfire", area_description="Angola")
+    b = _alert("gdacs:2", "gdacs", event="Wildfire", area_description="Angola")
+    c = _alert("nws:1", "nws", event="Wildfire", area_description="Angola")
+    groups, ambiguous = summarise_duplicates([a, b, c])
+    assert groups == []
+    assert ambiguous == 1
+
+
+def test_two_records_same_key_different_sources_still_grouped():
+    a = _alert("a:1", "src-a")
+    b = _alert("b:1", "src-b")
+    groups, ambiguous = summarise_duplicates([a, b])
+    assert len(groups) == 1
+    assert set(groups[0].alert_ids) == {"a:1", "b:1"}
+    assert ambiguous == 0
+
+
+def test_four_source_group_one_record_each_still_valid():
+    members = [
+        _alert("a:1", "src-a"),
+        _alert("b:1", "src-b"),
+        _alert("c:1", "src-c"),
+        _alert("d:1", "src-d"),
+    ]
+    groups, ambiguous = summarise_duplicates(members)
+    assert len(groups) == 1
+    assert set(groups[0].alert_ids) == {"a:1", "b:1", "c:1", "d:1"}
+    assert ambiguous == 0
 
 
 def test_no_duplicates_yields_empty_list():

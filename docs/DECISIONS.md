@@ -251,6 +251,47 @@ step would catch (not a general similarity threshold) could extend
 `_normalise`, with the same evidence bar as D1: a real observed pair,
 attached to the PR.
 
+**Addendum, 18 Aug 2026 — a source's own ids are authoritative about its
+own event distinctness.** The rule above (exact `event` + `area_description`
+match) shipped and immediately produced a false-positive catastrophe:
+against live data it formed a "group of 98" keyed `wildfire|angola` — 98
+*separate* GDACS wildfire events, each carrying its own distinct
+`gdacs:eventid`, spanning ten days, collapsed into one group purely
+because GDACS's `area_description` is country-level (`"Angola"`, nothing
+finer — see DATA-SOURCES.md). The same defect produced groups of 49
+(`wildfire|the democratic republic of congo`) and 32 (`wildfire|brazil`).
+When GDACS assigns two records different event ids, GDACS is *stating*
+they are different events, and no cross-source key this module invents
+gets to overrule that.
+
+**The fix.** A candidate group (2+ records sharing an `event_key`) is
+only reported as a `DuplicateGroup` when every member comes from a
+*different* `provenance.source_id`. If any source contributes two or
+more records to a candidate group, the key is too coarse for that
+source's own identity guarantees and the **entire group is discarded**
+— not narrowed, not partially kept. Two candidate rules were measured
+against the same live fetch: a loose rule (more than one distinct
+source present) produced 133 groups, 17 of which still contained
+multiple records from a single source and were therefore exactly this
+failure mode in miniature; the strict rule (every member a different
+source) produced 116 groups, all clean pairs, largest group size 2 —
+matching the verified SWIC↔NWS overlap this module was built to
+surface. 116 confident pairs beats 133 with 17 questionable ones: the
+same "prefer false negatives over false positives" asymmetry this
+entry already argues for, applied to its own edge case.
+
+**Rejected groups are not silently dropped (principle 4).**
+`AlertsResponse.ambiguous_duplicate_groups` counts how many candidate
+groups were found but discarded this way, so an operator can see that
+duplicates were suspected but could not be confidently paired — rather
+than the count simply vanishing. See `query.py` and
+`dedupe.summarise_duplicates`.
+
+**What would re-open this.** Evidence that the strict rule is
+discarding real cross-source duplicates in bulk (not the rare
+coincidence) would be the bar — the same evidence standard as the rest
+of this entry.
+
 ---
 
 ## Things we got wrong, kept here on purpose

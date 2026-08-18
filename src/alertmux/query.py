@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 
-from alertmux.dedupe import DuplicateGroup, group_duplicates
+from alertmux.dedupe import DuplicateGroup, summarise_duplicates
 from alertmux.schema import DISCLAIMER, NormalisedAlert
 
 
@@ -41,6 +41,14 @@ class AlertsResponse(BaseModel):
     # direct NWS fetch). Never changes `alerts` -- see dedupe.py and
     # DECISIONS.md D13.
     duplicate_groups: list[DuplicateGroup] = Field(default_factory=list)
+    # Candidate groups found by (event, area_description) but rejected
+    # because one source contributed two or more of the records --
+    # meaning the source's own ids disagree with the key about whether
+    # the records are distinct events, so no confident pairing could be
+    # made. Not silently dropped (principle 4): this count is the only
+    # trace of them in the response. See dedupe.py's summarise_duplicates
+    # and DECISIONS.md D13.
+    ambiguous_duplicate_groups: int = 0
 
 
 def collect(adapters) -> AlertsResponse:
@@ -75,11 +83,14 @@ def collect(adapters) -> AlertsResponse:
             )
         )
 
+    duplicate_groups, ambiguous_duplicate_groups = summarise_duplicates(alerts)
+
     return AlertsResponse(
         alerts=alerts,
         sources=statuses,
         # A truncated source is incomplete data even though ok is True.
         partial=any((not s.ok) or s.truncated for s in statuses),
         retrieved_at=datetime.now(tz=timezone.utc),
-        duplicate_groups=group_duplicates(alerts),
+        duplicate_groups=duplicate_groups,
+        ambiguous_duplicate_groups=ambiguous_duplicate_groups,
     )

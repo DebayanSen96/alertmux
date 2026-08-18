@@ -288,6 +288,19 @@ RSS/XML adapter in the codebase — parsed with the standard library's
 - A fixture trimmed to 5 items (`tests/fixtures/gdacs_rss.xml`, one each of
   EQ/DR/WF/TC/FL) was recorded from the live feed the same day; real field
   names and values throughout, no invented data.
+- **`gdacs:country` (`area_description`) is country-level only — never a
+  locality.** It is just the country name (`"Angola"`, `"Brazil"`), not a
+  region, province, or town. This is what makes `event` + `area_description`
+  a dangerously coarse identity key for GDACS specifically: 98 separate
+  Angola wildfires, each with its own distinct `gdacs:eventid`, all carry
+  `area_description="Angola"` and would collapse onto one
+  `wildfire|angola` key with nothing to tell them apart if grouped naively.
+  `dedupe.py` guards against this by requiring every member of a candidate
+  group to come from a different `provenance.source_id` — see
+  DECISIONS.md D13's 18 Aug 2026 addendum. Anything else built on top of
+  `area_description` (filtering, display grouping, a future notifier) should
+  expect the same coarseness from this source and not assume country-level
+  text means "the whole country is affected."
 
 ## NASA EONET — satellite-observed events
 
