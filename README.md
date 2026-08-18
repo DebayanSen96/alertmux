@@ -50,6 +50,47 @@ is distinguishable from a genuinely quiet day.
 Results are cached for 60 seconds, so polling `/health` does not repeatedly
 pull ~774KB from WMO.
 
+## Use from Claude
+
+alertmux ships an MCP server so a Claude user can query live alerts from
+inside a conversation, without going through the HTTP API. `mcp` is an
+optional dependency — installing it pulls in a second HTTP client
+(`httpx2`), `cryptography`, `opentelemetry-api` and a few other packages
+that the core library does not otherwise need, so it stays opt-in (see
+`docs/DECISIONS.md`).
+
+```bash
+pip install "alertmux[mcp]"
+```
+
+This installs the `alertmux-mcp` console script, which speaks MCP over
+stdio:
+
+```bash
+alertmux-mcp
+```
+
+Add it to a client's MCP config (e.g. Claude Desktop's
+`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "alertmux": {
+      "command": "alertmux-mcp"
+    }
+  }
+}
+```
+
+Four tools are exposed — `list_alerts`, `list_sources`,
+`get_hazard_coverage`, and `find_duplicates` — all reading through the same
+cached fetch path the HTTP API uses, so an MCP client never hammers WMO
+independently of anyone else querying alertmux. Every tool response carries
+the relay disclaimer and the `partial`/`truncated` flags from the query
+layer, so a model relaying the answer can say plainly when data is missing
+or incomplete rather than reporting it as a clean "no alerts."
+
 ## An example alert
 
 A real warning from the Nigerian Meteorological Agency, as alertmux returns it:

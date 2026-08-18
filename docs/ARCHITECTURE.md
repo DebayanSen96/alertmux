@@ -29,6 +29,7 @@ One direction. No writes to any external system. No state except a 60-second cac
 | `dedupe.py` | Cross-source duplicate reporting — never merges or drops |
 | `sources.py` | `/sources` report: structural gaps, authorities seen, heuristic hazard coverage |
 | `api.py` | FastAPI, TTL cache, HTTP status semantics |
+| `mcp_server.py` | MCP presentation (optional `mcp` extra) — four tools over the same cached `collect()` path |
 
 An adapter knows its own source's quirks and **nothing** about any other adapter,
 the query layer, or the API. That isolation is what makes adding a feed a one-file
@@ -273,6 +274,41 @@ if result.partial:
 ```
 
 `200 OK` carrying `{"ok": false}` reads green to every standard monitor.
+
+## mcp_server.py — same data, a different consumer
+
+`mcp` is an optional extra (`pip install alertmux[mcp]`) — see DECISIONS.md
+for why the core library does not depend on it. `mcp_server.py` is only
+importable when it is installed; `tests/test_mcp_server.py` guards with
+`pytest.importorskip("mcp")` so the core suite is unaffected either way.
+
+It builds an `MCPServer` (from `mcp.server.mcpserver` — not `FastMCP`,
+which does not exist in `mcp` 2.0) and registers four tools:
+`list_alerts`, `list_sources`, `get_hazard_coverage`, `find_duplicates`.
+Every tool calls `alertmux.api._collect_cached()` — the same TTL-cached
+path `/alerts`, `/health` and `/sources` already share — rather than
+calling adapters directly, so an MCP client never causes a second,
+independent hammering of WMO/USGS/NWS/GDACS/EONET alongside the HTTP API.
+
+**Every response model carries `DISCLAIMER` as a field**, not just a tool
+description. This matters more here than over HTTP: an HTTP consumer is
+code that can be written once to check `partial` before acting, but an MCP
+consumer is an LLM that will paraphrase the result for an end user. If the
+disclaimer and the partiality/truncation flags are not *in the data*, a
+model has nothing to relay — it will confidently summarise a degraded or
+truncated fetch as complete. `list_alerts` therefore reports `partial`
+(some source failed or was truncated in this fetch) and `truncated`
+(this call's own `limit` cut off matching results) as two separate
+booleans, on the same reasoning as `query.py`'s `partial` vs `truncated`
+split.
+
+`get_hazard_coverage` exists as its own tool, not folded into
+`list_sources`, because it answers the specific question this project
+considers dangerous to get wrong by omission: whether "no alerts for X"
+means a quiet day or means no source covers hazard family X at all (e.g.
+no tsunami source). Surfacing it as a dedicated, prominently-described
+tool makes it something a model is likely to check before asserting an
+absence, rather than a field buried in a larger coverage report.
 
 ## What is deliberately absent
 

@@ -292,6 +292,48 @@ discarding real cross-source duplicates in bulk (not the rare
 coincidence) would be the bar — the same evidence standard as the rest
 of this entry.
 
+## D14 — `mcp` is an optional dependency, and its disclaimer/partiality flags matter more than over HTTP
+
+**Decision.** `mcp` lives in `[project.optional-dependencies]` under the
+`mcp` extra, not in `dependencies`. `mcp_server.py` is only importable
+when it is installed, and `tests/test_mcp_server.py` guards every test
+with `pytest.importorskip("mcp")` so the core suite is unaffected either
+way.
+
+**Why it is optional.** alertmux's core runtime is pydantic/httpx/fastapi/
+uvicorn, and its value is five small adapters people can copy. `mcp`
+2.0.0 drags in a second, distinct HTTP client (`httpx2` — not the
+`httpx` this project already uses), `cryptography`, `opentelemetry-api`,
+`pyjwt`, `sse-starlette` and `python-multipart`. None of that is needed
+to fetch and normalise alerts; forcing it on every installer to serve the
+minority who want an MCP client would violate the same "stay light"
+reasoning that keeps the core dependency list to four packages.
+
+**Why the disclaimer and partiality flags matter more over MCP than
+HTTP.** An HTTP consumer of `/alerts` is code: it can be written once,
+correctly, to check `partial` before acting, and a human reading the raw
+JSON sees `disclaimer` as text. An MCP consumer is an LLM that will
+*paraphrase* the tool result for an end user — if `partial`, `truncated`
+and the disclaimer are not fields on the structured response itself, the
+model has nothing concrete to relay and will confidently summarise a
+degraded or truncated fetch as complete, which is exactly principle 4's
+failure mode, now with an LLM's fluency behind it. This is why every
+`mcp_server.py` tool response model carries `disclaimer: str = DISCLAIMER`
+directly (not only in a tool `description=`, which a model deciding
+whether to call a tool reads, but not necessarily on every subsequent
+turn), and why `list_alerts` reports `partial` (the underlying fetch) and
+`truncated` (this call's own `limit`) as two distinct booleans rather than
+folding truncation into a silent slice of `alerts`.
+
+**Cost of being wrong.** Making `mcp` a hard dependency would tax every
+installer — including the ones already copying single adapters, per the
+README — with packages irrelevant to their use case. Omitting the
+disclaimer/partiality fields from the MCP response models would not
+break any test at the HTTP layer, since they are two separate surfaces;
+it would only show up as a Claude conversation confidently reporting "no
+alerts" when a source was actually down, which is much harder to catch
+than a failing assertion.
+
 ---
 
 ## Things we got wrong, kept here on purpose
