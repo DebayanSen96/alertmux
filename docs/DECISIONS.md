@@ -181,6 +181,33 @@ configures their own subscriptions for themselves, stays on the safe side of tha
 line. A hosted service mass-mailing strangers does not. That boundary is a design
 constraint, not a scoping convenience.
 
+## D12 — EONET carries only the latest geometry, not the whole track
+
+**Decision.** `adapters/eonet.py` takes the most recent entry of an event's
+`geometries` list (sorted defensively by `date`) and discards the rest. `sent`
+is set from that same geometry's `date`, not any other timestamp on the event.
+
+**Why.** `NormalisedAlert.geometry` holds a single GeoJSON dict — the same
+shape every other adapter fills — so the real choice was "latest point" versus
+"bundle the whole track into a `GeometryCollection` unique to this source."
+Latest wins: it answers "where is this event now," which is what a relay
+consumer expects from a single geometry field, and it keeps the field
+literally interoperable with every other adapter instead of introducing a
+one-off shape. A consumer that wants the full accumulated track already has
+it — `provenance.raw_reference` is the event's own EONET API page, which
+serves the complete geometry history.
+
+**Cost of being wrong.** A cyclone's latest point is a snapshot, not a path —
+a consumer inferring direction of travel from one alert gets nothing; they
+would need to diff successive polls. That is an accepted limitation of
+"observations, not warnings," not a defect: EONET itself makes no claim about
+where an event is *going*, only where it has been *seen*.
+
+**What would justify changing it.** A consumer need that specifically
+requires the full track in one alert (e.g., rendering a storm path) — at which
+point a `GeometryCollection` becomes worth the schema inconsistency it costs
+every other adapter's assumption of a single Point/Polygon.
+
 ---
 
 ## Things we got wrong, kept here on purpose

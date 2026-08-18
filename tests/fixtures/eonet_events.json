@@ -1,0 +1,255 @@
+{
+  "title": "EONET Events",
+  "description": "Natural events from EONET.",
+  "link": "https://eonet.gsfc.nasa.gov/api/v2.1/events",
+  "events": [
+    {
+      "id": "EONET_22798",
+      "title": "Wildfire Picture Rock, Lake, Oregon",
+      "description": "3 Miles N from Summer Lake, OR",
+      "link": "https://eonet.gsfc.nasa.gov/api/v2.1/events/EONET_22798",
+      "categories": [
+        {
+          "id": 8,
+          "title": "Wildfires"
+        }
+      ],
+      "sources": [
+        {
+          "id": "IRWIN",
+          "url": "https://irwin.doi.gov/observer/incidents/2026-ORLAD-260313"
+        }
+      ],
+      "geometries": [
+        {
+          "date": "2026-08-16T15:55:00Z",
+          "type": "Point",
+          "coordinates": [
+            -120.774487,
+            43.00919
+          ]
+        }
+      ]
+    },
+    {
+      "id": "EONET_22800",
+      "title": "Wildfire CATO 2, Chaves, New Mexico",
+      "description": "40 Miles NE from Roswell, NM",
+      "link": "https://eonet.gsfc.nasa.gov/api/v2.1/events/EONET_22800",
+      "categories": [
+        {
+          "id": 8,
+          "title": "Wildfires"
+        }
+      ],
+      "sources": [
+        {
+          "id": "IRWIN",
+          "url": "https://irwin.doi.gov/observer/incidents/2026-NMROD-000632"
+        }
+      ],
+      "geometries": [
+        {
+          "date": "2026-08-15T23:18:00Z",
+          "type": "Point",
+          "coordinates": [
+            -103.9452,
+            33.50765
+          ]
+        }
+      ]
+    },
+    {
+      "id": "EONET_22791",
+      "title": "Wildfire THE H1, Palm Beach, Florida",
+      "description": "5 Miles W from DEEM CITY, FL",
+      "link": "https://eonet.gsfc.nasa.gov/api/v2.1/events/EONET_22791",
+      "categories": [
+        {
+          "id": 8,
+          "title": "Wildfires"
+        }
+      ],
+      "sources": [
+        {
+          "id": "IRWIN",
+          "url": "https://irwin.doi.gov/observer/incidents/2026-FLFLS-1800136"
+        }
+      ],
+      "geometries": [
+        {
+          "date": "2026-08-15T22:19:00Z",
+          "type": "Point",
+          "coordinates": [
+            -80.7516667,
+            26.3688889
+          ]
+        }
+      ]
+    },
+    {
+      "id": "EONET_22560",
+      "title": "Tropical Storm Cristobal",
+      "description": "",
+      "link": "https://eonet.gsfc.nasa.gov/api/v2.1/events/EONET_22560",
+      "categories": [
+        {
+          "id": 10,
+          "title": "Severe Storms"
+        }
+      ],
+      "sources": [
+        {
+          "id": "NOAA_NHC",
+          "url": "https://www.nhc.noaa.gov/archive/2026/CRISTOBAL.shtml"
+        }
+      ],
+      "geometries": [
+        {
+          "date": "2026-08-12T15:00:00Z",
+          "type": "Point",
+          "coordinates": [
+            -43,
+            36.7
+          ]
+        },
+        {
+          "date": "2026-08-12T21:00:00Z",
+          "type": "Point",
+          "coordinates": [
+            -41,
+            37.2
+          ]
+        },
+        {
+          "date": "2026-08-13T09:00:00Z",
+          "type": "Point",
+          "coordinates": [
+            -38.2,
+            38.6
+          ]
+        },
+        {
+          "date": "2026-08-13T15:00:00Z",
+          "type": "Point",
+          "coordinates": [
+            -36.8,
+            39.4
+          ]
+        }
+      ]
+    },
+    {
+      "id": "EONET_22562",
+      "title": "Cyclone Hernan",
+      "description": "",
+      "link": "https://eonet.gsfc.nasa.gov/api/v2.1/events/EONET_22562",
+      "categories": [
+        {
+          "id": 10,
+          "title": "Severe Storms"
+        }
+      ],
+      "sources": [
+        {
+          "id": "JTWC",
+          "url": "https://www.metoc.navy.mil/jtwc/products/ep0826.tcw"
+        },
+        {
+          "id": "NOAA_NHC",
+          "url": "https://www.nhc.noaa.gov/archive/2026/HERNAN.shtml"
+        }
+      ],
+      "geometries": [
+        {
+          "date": "2026-08-13T06:00:00Z",
+          "type": "Point",
+          "coordinates": [
+            -131.8,
+            18.1
+          ]
+        },
+        {
+          "date": "2026-08-13T12:00:00Z",
+          "type": "Point",
+          "coordinates": [
+            -131.9,
+            18.1
+          ]
+        },
+        {
+          "date": "2026-08-13T18:00:00Z",
+          "type": "Point",
+          "coordinates": [
+            -132.1,
+            17.8
+          ]
+        },
+        {
+          "date": "2026-08-14T00:00:00Z",
+          "type": "Point",
+          "coordinates": [
+            -131.9,
+            17.1
+          ]
+        },
+        {
+          "date": "2026-08-14T06:00:00Z",
+          "type": "Point",
+          "coordinates": [
+            -131.9,
+            16.5
+          ]
+        },
+        {
+          "date": "2026-08-14T12:00:00Z",
+          "type": "Point",
+          "coordinates": [
+            -132,
+            15.6
+          ]
+        },
+        {
+          "date": "2026-08-14T18:00:00Z",
+          "type": "Point",
+          "coordinates": [
+            -132,
+            15.6
+          ]
+        },
+        {
+          "date": "2026-08-15T00:00:00Z",
+          "type": "Point",
+          "coordinates": [
+            -132.1,
+            16.1
+          ]
+        },
+        {
+          "date": "2026-08-15T06:00:00Z",
+          "type": "Point",
+          "coordinates": [
+            -133.2,
+            16.3
+          ]
+        },
+        {
+          "date": "2026-08-15T12:00:00Z",
+          "type": "Point",
+          "coordinates": [
+            -134.4,
+            16.1
+          ]
+        },
+        {
+          "date": "2026-08-15T18:00:00Z",
+          "type": "Point",
+          "coordinates": [
+            -135.4,
+            15.8
+          ]
+        }
+      ]
+    }
+  ]
+}

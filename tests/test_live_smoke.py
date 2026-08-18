@@ -5,6 +5,7 @@ Excluded from the default run so CI never depends on third-party uptime.
 
 import pytest
 
+from alertmux.adapters.eonet import EonetAdapter
 from alertmux.adapters.gdacs import GdacsAdapter
 from alertmux.adapters.nws import NwsAdapter
 from alertmux.adapters.swic import SwicAdapter
@@ -60,3 +61,20 @@ def test_gdacs_live_returns_events_and_never_states_a_severity():
         assert alert.provenance.authority == "gdacs"
         assert alert.event
         assert alert.severity is None
+
+
+def test_eonet_live_returns_events_and_never_states_warning_concepts():
+    """EONET publishes what satellites observed, not what an authority
+    is warning about - severity/urgency/certainty/expires genuinely do
+    not apply to any live event, regardless of category or how many
+    geometries it has accumulated while being tracked."""
+    result = EonetAdapter().fetch()
+    assert result.ok is True, result.error
+    assert len(result.alerts) > 0
+    for alert in result.alerts:
+        assert alert.provenance.authority == "nasa-eonet"
+        assert alert.event
+        assert alert.severity is None
+        assert alert.urgency is None
+        assert alert.certainty is None
+        assert alert.expires is None

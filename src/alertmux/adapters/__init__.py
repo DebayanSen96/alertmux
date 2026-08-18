@@ -5,14 +5,22 @@ the import, the __all__ entry, and the default_adapters() return.
 See the "Adding a source" section of the README.
 """
 
+from alertmux.adapters.eonet import EonetAdapter
 from alertmux.adapters.gdacs import GdacsAdapter
 from alertmux.adapters.nws import NwsAdapter
 from alertmux.adapters.swic import SwicAdapter
 from alertmux.adapters.usgs import UsgsAdapter
 
-__all__ = ["GdacsAdapter", "NwsAdapter", "SwicAdapter", "UsgsAdapter", "default_adapters"]
+__all__ = [
+    "EonetAdapter",
+    "GdacsAdapter",
+    "NwsAdapter",
+    "SwicAdapter",
+    "UsgsAdapter",
+    "default_adapters",
+]
 
 
 def default_adapters():
     """Every adapter enabled by default."""
-    return [SwicAdapter(), UsgsAdapter(), NwsAdapter(), GdacsAdapter()]
+    return [SwicAdapter(), UsgsAdapter(), NwsAdapter(), GdacsAdapter(), EonetAdapter()]
