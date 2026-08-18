@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+    <feed xmlns="http://www.w3.org/2005/Atom" xmlns:geo="http://www.w3.org/2003/01/geo/wgs84_pos#" xmlns:georss="http://www.georss.org/georss">
+    <id>urn:uuid:96c2834c-c107-4699-80c4-5f90582b925c</id><title>Tsunami Information Statement Number 1</title>
+    <updated>2026-08-17T20:39:52Z</updated>
+    <author>
+      <name>NWS National Tsunami Warning Center Palmer AK</name>
+<uri>https://www.tsunami.gov/</uri>
+     <email>ntwc@noaa.gov</email>
+    </author>
+<icon>https://www.tsunami.gov/images/favicon.ico</icon>
+<link type="application/atom+xml" rel="self" title="self" href="https://www.tsunami.gov/events/xml/PAAQAtom.xml"/>
+
+   <entry>
+
+    <title>100 miles SW of Kodiak City, Alaska</title><updated>2026-08-17T20:39:52Z</updated>
+<geo:lat>57.200</geo:lat>
+<geo:long>-154.800</geo:long>
+<summary type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">
+     <strong>Category:</strong> Information<br/><strong>Bulletin Issue Time: </strong> 2026.08.17 20:39:52 UTC <br/><strong>Preliminary Magnitude: </strong>4.6(Mwp)<br/><strong>Lat/Lon: </strong>57.200 / -154.800<br/><strong>Affected Region: </strong>100 miles SW of Kodiak City, Alaska<br/><b>Note:</b>  * There is NO tsunami danger from this earthquake.<br/><strong>Definition: </strong>An information statement indicates that an earthquake has occurred, but does not pose a tsunami threat, or that a tsunami warning, advisory, or watch has been issued for another section of the ocean. <a href="https://www.tsunami.gov/events/PAAQ/2026/08/17/tjxl6l/1/WEAK53/WEAK53.txt">View bulletin</a>  </div></summary>
+    <id>urn:uuid:3f6aa6dd-f007-48f2-8ff7-806d50e1da95</id><link rel="related" title="CapXML document" href="https://www.tsunami.gov/events/PAAQ/2026/08/17/tjxl6l/1/WEAK53/PAAQCAP.xml" type="application/cap+xml" />
+<link rel="alternate" title="Bulletin" href="https://www.tsunami.gov/events/PAAQ/2026/08/17/tjxl6l/1/WEAK53/WEAK53.txt" type="application/xml" />
+</entry>
+</feed>

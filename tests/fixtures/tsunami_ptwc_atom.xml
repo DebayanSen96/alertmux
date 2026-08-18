@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+    <feed xmlns="http://www.w3.org/2005/Atom" xmlns:geo="http://www.w3.org/2003/01/geo/wgs84_pos#" xmlns:georss="http://www.georss.org/georss">
+    <id>urn:uuid:90096de6-e6f1-4edc-a570-1ca33b43fad1</id><title>        TSUNAMI INFORMATION STATEMENT NUMBER   1        </title>
+    <updated>2026-08-12T03:51:02Z</updated>
+    <author>
+      <name>NWS PACIFIC TSUNAMI WARNING CENTER HONOLULU HI</name>
+<uri>https://www.tsunami.gov/</uri>
+     <email>ntwc@noaa.gov</email>
+    </author>
+<icon>https://www.tsunami.gov/images/favicon.ico</icon>
+<link type="application/atom+xml" rel="self" title="self" href="https://www.tsunami.gov/events/xml/PAAQAtom.xml"/>
+ <link rel="related" title="Energy Map" href="https://www.tsunami.gov/events/PHEB/2026/08/12/26224050/1/WEHW42/ " type="image/jpeg" />
+
+   <entry>
+
+    <title>AT LOIHI SEAMOUNT SOUTH OF THE BIG ISLAND</title><updated>2026-08-12T03:51:02Z</updated>
+<geo:lat>18.753</geo:lat>
+<geo:long>-155.189</geo:long>
+<summary type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">
+     <strong>Category:</strong> Information<br/><strong>Bulletin Issue Time: </strong> 2026.08.12 03:51:02 UTC <br/><strong>Preliminary Magnitude: </strong>5.1(Ml)<br/><strong>Lat/Lon: </strong>18.753 / -155.189<br/><strong>Affected Region: </strong>AT LOIHI SEAMOUNT SOUTH OF THE BIG ISLAND<br/><b>Note:</b>  <br/><strong>Definition: </strong><a href="https://www.tsunami.gov/events/PHEB/2026/08/12/26224050/1/WEHW42/WEHW42.txt">View bulletin</a><img src="https://www.tsunami.gov/events/PHEB/2026/08/12/26224050/1/WEHW42/ " alt="Energy Map" />
+ </div></summary>
+    <id>urn:uuid:b3ad61bd-2bc5-4a1c-ad6b-53a2dd052cbf</id><link rel="related" title="CapXML document" href="https://www.tsunami.gov/events/PHEB/2026/08/12/26224050/1/WEHW42/PHEBCAP.xml" type="application/cap+xml" />
+<link rel="alternate" title="Bulletin" href="https://www.tsunami.gov/events/PHEB/2026/08/12/26224050/1/WEHW42/WEHW42.txt" type="application/xml" />
+</entry>
+</feed>

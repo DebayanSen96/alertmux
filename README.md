@@ -16,6 +16,7 @@ the issuing authority.**
 | NOAA / NWS | United States, active alerts |
 | GDACS | Global disaster alerts (earthquakes, floods, cyclones, drought, wildfire) |
 | NASA EONET | Satellite-observed events (wildfires, severe storms) — observations, not warnings |
+| tsunami.gov (NTWC + PTWC) | US tsunami bulletins (Information Statement, Watch, Advisory, Warning) |
 
 ## Install
 

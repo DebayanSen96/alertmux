@@ -9,6 +9,7 @@ from alertmux.adapters.eonet import EonetAdapter
 from alertmux.adapters.gdacs import GdacsAdapter
 from alertmux.adapters.nws import NwsAdapter
 from alertmux.adapters.swic import SwicAdapter
+from alertmux.adapters.tsunami import TsunamiAdapter
 from alertmux.adapters.usgs import UsgsAdapter
 from alertmux.registry import get_register
 
@@ -79,6 +80,27 @@ def test_eonet_live_returns_events_and_never_states_warning_concepts():
         assert alert.urgency is None
         assert alert.certainty is None
         assert alert.expires is None
+
+
+def test_tsunami_live_never_states_a_severity_for_an_information_statement():
+    """The central safety guard for this source: whatever tsunami.gov's
+    NTWC/PTWC feeds hold right now (zero alerts is the normal state of
+    the world), no live alert whose event is an Information Statement
+    may ever carry a non-null `severity`. Both feeds must at least
+    answer (ok=True), even if neither has an active bulletin."""
+    result = TsunamiAdapter().fetch()
+    assert result.ok is True, result.error
+    for alert in result.alerts:
+        assert alert.provenance.authority in {"us-ntwc", "us-ptwc"}
+        assert alert.event in {
+            "Tsunami Information Statement",
+            "Tsunami Watch",
+            "Tsunami Advisory",
+            "Tsunami Warning",
+        }
+        assert alert.severity is None
+        if alert.event == "Tsunami Information Statement":
+            assert alert.source_severity == "Information"
 
 
 def test_wmo_register_live_returns_at_least_250_authorities():

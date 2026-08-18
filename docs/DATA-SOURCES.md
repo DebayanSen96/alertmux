@@ -370,6 +370,118 @@ RSS/XML adapter in the codebase — parsed with the standard library's
   expect the same coarseness from this source and not assume country-level
   text means "the whole country is affected."
 
+## tsunami.gov — NTWC + PTWC tsunami bulletins
+
+```
+https://www.tsunami.gov/events/xml/PAAQAtom.xml   National Tsunami Warning Center (NTWC, Palmer AK)
+https://www.tsunami.gov/events/xml/PHEBAtom.xml   Pacific Tsunami Warning Center (PTWC, Honolulu HI)
+```
+
+No key. Both verified live 17-18 Aug 2026. **Measured: this was the one hazard
+family with zero coverage across all five other sources** — SWIC is a
+meteorological warning system and carries no tsunamis at all (see "SWIC does not
+cover whole hazard families" above); NWS *can* emit `Tsunami Warning`/`Advisory`/
+`Watch` but only when one is active in US waters, and none was at measurement time.
+`/sources` reported `tsunami` in `uncovered_hazards` before this adapter existed.
+
+**Atom, not RSS.** `<entry>`, not `<item>`, under the default namespace
+`http://www.w3.org/2005/Atom`. `geo:lat` / `geo:long`
+(`http://www.w3.org/2003/01/geo/wgs84_pos#`) on each entry. Implemented in
+`adapters/tsunami.py` (issue #15) with `xml.etree.ElementTree`, no new dependency.
+
+Observed shape, both feeds, 17-18 Aug 2026 (each carried exactly one `<entry>`):
+
+```xml
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:geo="http://www.w3.org/2003/01/geo/wgs84_pos#">
+  <title>Tsunami Information Statement Number 1</title>
+  <updated>2026-08-17T20:39:52Z</updated>
+  <entry>
+    <title>100 miles SW of Kodiak City, Alaska</title>
+    <updated>2026-08-17T20:39:52Z</updated>
+    <geo:lat>57.200</geo:lat>
+    <geo:long>-154.800</geo:long>
+    <summary type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">
+      <strong>Category:</strong> Information<br/>
+      ...
+      <strong>Definition: </strong>An information statement indicates that an
+      earthquake has occurred, but does not pose a tsunami threat, or that a
+      tsunami warning, advisory, or watch has been issued for another section
+      of the ocean. <a href="...">View bulletin</a>
+    </div></summary>
+    <id>urn:uuid:3f6aa6dd-f007-48f2-8ff7-806d50e1da95</id>
+    <link rel="related" title="CapXML document" href="..." type="application/cap+xml" />
+    <link rel="alternate" title="Bulletin" href="..." type="application/xml" />
+  </entry>
+</feed>
+```
+
+### The statement hierarchy — this is the whole point
+
+```
+Information Statement  <  Watch  <  Advisory  <  Warning
+```
+
+**An Information Statement is NOT a warning.** It is the routine, most common
+case — it typically means an earthquake occurred and no destructive tsunami is
+expected. Both live feeds carried only Information Statements at the time this
+adapter was built. See DECISIONS.md D17 for the full reasoning: the bulletin
+category is never mapped to CAP `severity` (stays `None`, always in
+`unavailable_fields`); it is kept verbatim, mapped through an explicit table, in
+`event` (`"Tsunami Information Statement"`, not a generic `"Tsunami"`) and raw in
+`source_severity`.
+
+### Where the level actually lives
+
+**Not in the entry `<title>`** — that is the affected region ("100 miles SW of
+Kodiak City, Alaska"), same role GDACS's `area_description` plays.
+
+**Not reliably in the feed-level `<title>`** either, even though it states the
+level verbatim ("Tsunami Information Statement Number 1") — that title describes
+the feed's current/latest bulletin, not necessarily every `<entry>` it might ever
+contain. Used here only for `headline` (feed-scoped, applied per entry — correct
+for the single-entry feeds observed; would need revisiting if a feed is ever
+observed carrying more than one entry with differing levels).
+
+**The level comes from the entry's own `<summary>`**, specifically the
+`Category: <word>` line embedded in its XHTML body (`Information` observed;
+`Watch`/`Advisory`/`Warning` are tsunami.gov's own documented categories, unobserved
+live). `adapters/tsunami.py`'s `_category()` extracts it with a regex over the
+summary's concatenated text rather than parsing the presentational `<strong>`/`<br/>`
+markup structurally. A category outside `CATEGORY_TO_EVENT` is quarantined (D3), not
+defaulted.
+
+### Identity and other notes
+
+- **Identity is the entry's own `<id>`** (a `urn:uuid:...`), namespaced by centre:
+  `tsunami-gov:{us-ntwc|us-ptwc}:{entry-id}`. Verified stable — two independent
+  fetches of both feeds, seconds apart, 18 Aug 2026, returned byte-identical
+  responses, entry `<id>` included.
+- **Timestamps are ISO-8601 with an explicit `Z`** on every entry observed —
+  parsed and required to carry an offset, same as every other adapter. There is no
+  separate `onset`; the only timestamp is the bulletin's issue/update time, used as
+  `sent`.
+- **Structurally never supplied:** `urgency`, `certainty`, `expires`, `instruction`,
+  and a distinct `onset` — none of these concepts appear on this feed at all, not
+  even as unmapped source-native values.
+- **`raw_reference` prefers the CapXML link** (`rel="related" title="CapXML
+  document"`) over the plain-text bulletin link, mirroring GDACS's `gdacs:cap`
+  fallback to `<link>`.
+- Two authorities from one adapter, same pattern as SWIC covering 59: NTWC and PTWC
+  are different offices with different coverage areas (NTWC: Alaska, Canada, US
+  East/Gulf coasts; PTWC: Hawaii and the wider Pacific), so `provenance.authority`
+  distinguishes `us-ntwc` from `us-ptwc` rather than collapsing both into one
+  `tsunami-gov` authority. `fetch()` fetches and merges both; one centre's outage
+  does not take the other's alerts down with it — recorded as a quarantined entry
+  (`invalid_samples`) naming the failed centre, and only a total failure of both
+  centres makes `ok=False`.
+- Fixtures (`tests/fixtures/tsunami_ntwc_atom.xml`, `tests/fixtures/tsunami_ptwc_atom.xml`)
+  are the real feed content captured 17-18 Aug 2026, byte-for-byte (only
+  reformatted for readability, no content changed) — both were Information
+  Statements; there was no live Watch/Advisory/Warning to capture. Tests exercising
+  those three levels modify a copy of the real fixture's `Category:` field, the
+  same technique `test_gdacs.py` uses for its unknown-eventtype case — never a
+  fabricated alert.
+
 ## NASA EONET — satellite-observed events
 
 ```

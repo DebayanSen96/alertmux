@@ -536,6 +536,55 @@ view's mapped codes would reopen which one should win — none observed as of
 
 ---
 
+## D17 — tsunami.gov's bulletin category is never mapped to CAP severity
+
+**Decision.** `adapters/tsunami.py` reads the per-entry `Category:` field
+tsunami.gov's NTWC/PTWC Atom feeds embed in each bulletin's `<summary>` and maps
+it, through an explicit table (`CATEGORY_TO_EVENT`), to the full verbatim level
+name — `"Tsunami Information Statement"`, `"Tsunami Watch"`, `"Tsunami
+Advisory"`, `"Tsunami Warning"` — and puts that in `event`. `severity` stays
+`None` and is always in `unavailable_fields`; the raw category goes in
+`source_severity` only.
+
+**Why.** tsunami.gov's own hierarchy is Information Statement < Watch <
+Advisory < Warning. An Information Statement is the routine, most common
+case — it typically means an earthquake occurred and no destructive tsunami
+is expected — not an escalation. There is no verified CAP mapping from this
+source's category to Minor/Moderate/Severe/Extreme; inventing one, or worse,
+letting an Information Statement read as anything resembling a warning,
+would be the single most dangerous thing this project could do. This is the
+same discipline as `gdacs:alertlevel` (impact score, not severity) and
+USGS's PAGER `alert` level — see the module docstrings and D1 — applied to a
+source where the stakes of getting it wrong are the highest in the
+codebase.
+
+**Verified vs. documented-only.** Both live feeds (17-18 Aug 2026) carried
+only `"Information"` bulletins — this project has never observed a live
+Watch, Advisory or Warning. Those three are in `CATEGORY_TO_EVENT` on the
+strength of tsunami.gov's own published terminology (present in every
+"Definition:" text these bulletins carry), the same documentation-only basis
+GDACS's `EVENT_TYPES` keeps `"VO"` (volcano) on. A category outside the
+table is quarantined (D3), never defaulted or passed through raw.
+
+**This will look like an oversight — the opposite of D1's SWIC codes.**
+Here the "helpful fix" someone might propose is mapping `"Warning"` straight
+to CAP `Extreme`/`Severe`, since it looks obviously safe by comparison to
+GDACS's alertlevel. It is guarded by
+`test_information_statement_never_produces_a_non_null_severity` in
+`tests/test_tsunami.py` and the live smoke test
+`test_tsunami_live_never_states_a_severity_for_an_information_statement`.
+
+**Cost of being wrong.** Getting this backwards in either direction is
+dangerous: relaying an Information Statement (the common case) as a
+`severity` value would manufacture false alarms at scale; a mis-mapped
+`Warning` read as low-severity would suppress the one case where this
+source matters most. A real, verified CAP file for a Watch/Advisory/Warning
+bulletin — none available at build time — would be the evidence needed to
+add a severity mapping, and even then only for the levels it actually
+covers.
+
+---
+
 ## Things we got wrong, kept here on purpose
 
 Recorded because the failure *modes* recur, and because a project that only documents
