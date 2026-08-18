@@ -162,6 +162,123 @@ Derived by fetching all in-force warnings and mapping `mem` to the `capurl` pref
 
 ---
 
+## Source overlap — measured, not assumed
+
+Verified 18 Aug 2026. The v0.1 design claimed SWIC "replaced" the NWS, GDACS and
+EONET adapters because one endpoint covers 59 authorities. **That was wrong**, and
+the numbers say so plainly.
+
+### SWIC vs NWS — same domain, SWIC is the lossy copy
+
+| | NWS direct | SWIC `mem='093'` (us-noaa) |
+|---|---|---|
+| Alerts in force | **292** | 204 (**69%**) |
+| Fields per alert | **32** | 9 |
+
+Missing from SWIC: 84 Small Craft Advisories, plus High Surf Advisory entirely.
+NWS additionally supplies `description`, `instruction`, `headline`, `expires`,
+`onset`, `effective`, `sender`, `category`, `response`, `status`, `messageType`,
+and — decisively — **`severity`/`urgency`/`certainty` as named CAP values**, so no
+integer-code mapping is needed at all.
+
+`expires` matters most: it is the field a notifier needs to tell a live warning from
+a lapsed one, and SWIC's list view does not carry it.
+
+**Conclusion: use NWS directly for US coverage.** SWIC's `us-noaa` slice is strictly
+worse on both count and depth.
+
+### SWIC does not cover whole hazard families
+
+Across all 2,235 SWIC alerts in force:
+
+```
+   694  wind/storm        206  wildfire/fire
+   376  heat              115  flood
+   269  rain                1  volcano
+     2  snow/ice
+     0  earthquake     <-- zero
+     0  drought        <-- zero
+     0  tsunami        <-- zero
+```
+
+SWIC is a **meteorological warning** system. GDACS carries what it cannot:
+365 events — 315 wildfire, 19 flood, **16 earthquake, 12 drought**, 3 tropical
+cyclone — each with an alert level and impact estimate
+(*"Green earthquake, Magnitude 5.6M, Depth 10km, Indonesia, 3 thousand in MMI V"*).
+EONET carries satellite-**observed** events: 195 wildfires, 5 severe storms.
+
+The two groups answer different questions and are not interchangeable:
+
+- **SWIC + NWS** — what authorities are **warning** about (forecast)
+- **GDACS + EONET + USGS** — what is **happening** (observed)
+
+A coverage metric counting only authorities is therefore misleading: 59/300
+authorities can still mean zero drought and zero earthquake coverage. **Track
+coverage by hazard family as well as by authority.**
+
+## NOAA / NWS — United States
+
+```
+https://api.weather.gov/alerts/active
+```
+
+No key. GeoJSON, CAP-derived, 32 properties per feature.
+
+- **`?limit=N` returns HTTP 400.** The parameter is not supported the way it looks;
+  use the unparameterised endpoint.
+- **`status` must be checked.** The live feed carries test traffic — a persistent
+  `KEEPALIVE` record with `status: "Test"`, `event: "Test Message"`. Observed 1 of
+  295. **Only `status == "Actual"` may be relayed as a warning.** Relaying a test
+  message as a real hazard alert would violate the project's central promise. SWIC
+  does not have this problem; it filters upstream (0 test events observed).
+- `messageType` is `Alert` (189) or `Update` (106). `Cancel` exists in the CAP spec
+  and must not surface as an active alert if it appears.
+- **Only 48 of 295 features carry geometry**; the rest are zone-referenced via
+  `affectedZones` / `geocode`. A null geometry here means "referenced by zone", not
+  "unknown" — do not conflate the two.
+- `severity` values observed: `Minor` 171, `Severe` 66, `Moderate` 49, `Unknown` 9.
+  `Unknown` is a real CAP value, not a missing field.
+
+## GDACS — global disaster alerts
+
+```
+https://www.gdacs.org/xml/rss.xml
+```
+
+RSS with a `gdacs:` namespace. 365 items observed. Event types via
+`<gdacs:eventtype>`: `WF` wildfire 315, `FL` flood 19, `EQ` earthquake 16,
+`DR` drought 12, `TC` tropical cyclone 3.
+
+Namespaced tags include `gdacs:alertlevel` (Green/Orange/Red), `gdacs:alertscore`,
+`gdacs:country`, `gdacs:bbox`, `gdacs:eventtype`, `gdacs:cap`, `gdacs:severity`.
+
+**`gdacs:alertlevel` is an impact score, not CAP severity.** Green/Orange/Red
+describe expected humanitarian impact. Do not map it onto CAP's
+Minor/Moderate/Severe/Extreme — that would assert a severity GDACS never stated.
+Keep it in `source_severity`.
+
+The JSON API at `/gdacsapi/api/events/geteventlist/MAP` returned 400 for every
+parameter name tried. Use the RSS.
+
+## NASA EONET — satellite-observed events
+
+```
+https://eonet.gsfc.nasa.gov/api/v2.1/events?limit=<n>
+```
+
+Clean JSON, no key. Event fields: `id`, `title`, `description`, `link`,
+`categories`, `sources`, `geometries`.
+
+Observed categories: Wildfires 195, Severe Storms 5.
+
+**These are observations, not warnings.** EONET has no severity, no urgency, no
+certainty, no expiry — those concepts do not apply, and all must be recorded as
+structurally unavailable rather than invented. `geometries` is a list of timestamped
+points or polygons; an event may have many as it is tracked over time.
+
+Largely overlaps GDACS on wildfires. Its value is independent satellite
+corroboration of an event another source is only forecasting.
+
 ## USGS — earthquakes
 
 ```
