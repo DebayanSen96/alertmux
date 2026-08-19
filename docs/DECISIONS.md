@@ -212,6 +212,53 @@ genuinely confusing on first encounter.
 ambiguity is a dangerous false negative — "no warnings for that country" is a very
 different statement from "you misspelled it."
 
+**Extended 18 Aug 2026 (issue #9) — the list itself can be short for a
+third reason, and that must be said too.** `available_authorities` is
+built only from `response.alerts` — the alerts *this fetch actually
+returned*. During a partial fetch (a source down, truncated, or
+quarantining records — see D3/D4), an authority whose only source
+failed silently drops out of that list along with everything else from
+that source. `partial: true` was already present alongside it, but it
+warns that *something* is incomplete without saying the authority list
+itself is one of the things that is short — a caller checking
+`available_authorities` for a specific authority has no reason to also
+go check `partial` unless told to.
+
+`AlertsResponse.available_authorities_partial: bool | None` closes
+that gap: set to `response.partial` whenever `available_authorities`
+is populated, and left `None` the rest of the time (there is nothing
+for it to qualify when the filter matched). A caller now gets three
+distinct answers instead of two: the filter matched (`alerts`
+non-empty); it matched nothing on a complete fetch (`available_authorities`
+set, `available_authorities_partial: false` — the authority is
+genuinely unrecognised or genuinely quiet); or it matched nothing on
+an incomplete fetch (`available_authorities_partial: true` — the
+authority may be entirely valid and simply missing because its source
+was unreachable when this fetch ran).
+
+**Why not use the WMO register (D15) to assert the authority is
+real.** D15 already ruled this out for a stronger reason than
+convenience: the register joins at country level only, because WMO's
+`raa:authorityAbbrev` and SWIC's `capurl` abbreviation independently
+name the same real-world agency differently (Nigeria: `nma` vs
+`nimet`). Using the register here would mean asserting "yes, this
+specific authority slug is registered" for a slug the register cannot
+actually validate — exactly the false certainty D15 exists to refuse,
+now in a place where the false certainty would look like it was fixing
+issue #9 instead of repeating D15's mistake. `available_authorities_partial`
+states only what this fetch can actually prove: that its own authority
+list is, or is not, complete.
+
+**Cost of being wrong.** Before this flag, a caller who filtered on a
+known-good authority during a partial fetch would see `[]` plus a
+short `available_authorities` that did not include it, and had no
+field-level signal that the omission might be the fetch's fault rather
+than the authority's — in a hazard system, reading that as "this
+authority does not exist" is the dangerous direction to be wrong in.
+Guarded by `tests/test_api.py`'s
+`test_unknown_authority_on_a_partial_fetch_is_flagged_partial` and its
+complete-fetch counterpart.
+
 ## D8 — `/health` returns 503 when degraded
 
 **Decision.** HTTP 503 with the same JSON body whenever `partial` is true.

@@ -71,7 +71,13 @@ not the filter.
 
 If `?authority=` matches nothing, the response also carries
 `available_authorities` — the authorities present in this fetch — so a typo
-is distinguishable from a genuinely quiet day.
+is distinguishable from a genuinely quiet day. That list is only ever built
+from alerts the current fetch actually returned, so it also carries
+`available_authorities_partial`: `true` means the underlying fetch was
+partial (a source was down, truncated, or dropped bad records), in which
+case a missing authority may simply have a source that failed right now,
+not one that does not exist. Check that flag before treating a short list
+as proof an authority is invalid.
 
 Results are cached for 60 seconds, so polling `/health` does not repeatedly
 pull ~774KB from WMO.

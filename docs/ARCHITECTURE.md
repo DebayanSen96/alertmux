@@ -342,11 +342,16 @@ worth remembering when adding state.
 ```python
 if not matching:
     response.available_authorities = sorted({a.provenance.authority for a in response.alerts})
+    response.available_authorities_partial = response.partial
 ```
 
 A typo returns `[]`, which in this domain reads as "that country has issued no
 warnings" — a dangerous false negative. Naming the authorities that answered lets a
-caller tell a typo from genuine quiet.
+caller tell a typo from genuine quiet. But that list is built only from alerts this
+fetch actually got back, so a source that was down during a partial fetch can drop a
+perfectly real authority out of it too — `available_authorities_partial` (D7,
+extended for issue #9) says explicitly when that list itself might be short, rather
+than leaving a caller to separately notice `partial` was also true.
 
 **`/alerts/{alert_id:path}/detail` uses the `:path` converter, not the
 default one.** An alert id embeds a `capurl`, and a `capurl` contains `/`
