@@ -125,9 +125,14 @@ def test_unverified_codes_stay_untranslated():
     assert alert.severity is None
     assert alert.urgency is None
     assert alert.certainty is None
-    assert "severity" in alert.unavailable_fields
-    assert "urgency" in alert.unavailable_fields
-    assert "certainty" in alert.unavailable_fields
+    # A code WAS supplied and refused -- that is unmapped, not
+    # unavailable (the source did not say nothing).
+    assert "severity" in alert.unmapped_fields
+    assert "urgency" in alert.unmapped_fields
+    assert "certainty" in alert.unmapped_fields
+    assert "severity" not in alert.unavailable_fields
+    assert "urgency" not in alert.unavailable_fields
+    assert "certainty" not in alert.unavailable_fields
 
 
 def test_null_geometry_is_recorded_as_unavailable():
@@ -223,18 +228,42 @@ def test_headline_and_description_are_never_fabricated():
 
 
 def test_unavailable_fields_is_exhaustive_in_both_directions():
-    payloads = [FIXTURE, _collection(_feature("f1", "xx-test-en/a.xml", areadesc=None))]
+    payloads = [
+        FIXTURE,
+        _collection(_feature("f1", "xx-test-en/a.xml", areadesc=None)),
+        _collection(_feature("f2", "xx-test-en/b.xml", s=0, u=1, c=1)),
+    ]
     optional = [
         name for name in NormalisedAlert.model_fields
-        if name not in {"id", "event", "provenance", "unavailable_fields"}
+        if name not in {"id", "event", "provenance", "unavailable_fields", "unmapped_fields"}
     ]
     for payload in payloads:
         for alert in SwicAdapter().parse(payload, NOW):
             for name in alert.unavailable_fields:
                 assert getattr(alert, name) is None, name
+            for name in alert.unmapped_fields:
+                assert getattr(alert, name) is None, name
             for name in optional:
                 if getattr(alert, name) is None:
-                    assert name in alert.unavailable_fields, name
+                    assert (
+                        name in alert.unavailable_fields
+                        or name in alert.unmapped_fields
+                    ), name
+
+
+def test_unavailable_and_unmapped_never_overlap():
+    """A field belongs to exactly one of the two lists, never both --
+    checked generically across every field on NormalisedAlert, for
+    every alert this adapter's fixtures produce."""
+    payloads = [
+        FIXTURE,
+        _collection(_feature("f1", "xx-test-en/a.xml", s=0, u=1, c=1)),
+        _collection(_feature("f2", "xx-test-en/b.xml", s="high")),
+    ]
+    for payload in payloads:
+        for alert in SwicAdapter().parse(payload, NOW):
+            overlap = set(alert.unavailable_fields) & set(alert.unmapped_fields)
+            assert overlap == set(), overlap
 
 
 def test_empty_feature_list_is_zero_alerts_not_an_error():
@@ -398,9 +427,9 @@ def test_severity_codes_as_digit_strings_still_map():
 
 def test_non_digit_string_code_stays_unmapped():
     """A string that is not a digit (e.g. free-text severity) must not be
-    forced through the table; it stays unmapped and is recorded as
-    unavailable, exactly as an unverified int code would. Int codes on
-    the same feature are unaffected and still map.
+    forced through the table; it stays in unmapped_fields, exactly as an
+    unverified int code would (a value WAS supplied and refused). Int
+    codes on the same feature are unaffected and still map.
     """
     alert = SwicAdapter().parse(
         _collection(_feature("f1", "xx-test-en/a.xml", s="high", u=3, c=4)),
@@ -408,7 +437,10 @@ def test_non_digit_string_code_stays_unmapped():
     )[0]
     assert alert.severity is None
     assert alert.source_severity == "high"
-    assert "severity" in alert.unavailable_fields
+    # A value WAS supplied ("high") and refused -- unmapped, not
+    # unavailable.
+    assert "severity" in alert.unmapped_fields
+    assert "severity" not in alert.unavailable_fields
     assert alert.urgency == "Expected"
     assert alert.certainty == "Observed"
 
@@ -689,6 +721,30 @@ def test_enriched_alert_shrinks_unavailable_fields():
     assert "expires" not in enriched.unavailable_fields
     # description stayed absent on both sides -- still unavailable.
     assert "description" in enriched.unavailable_fields
+
+
+@respx.mock
+def test_enrichment_clears_severity_from_unmapped_fields():
+    """A list-view code the source supplied but this adapter refused to
+    map (unmapped_fields) is a different claim from "nothing was
+    supplied" -- and the signed CAP file can resolve it. Confirms the
+    field moves out of unmapped_fields, not unavailable_fields, once
+    the detail fetch fills it in.
+    """
+    from alertmux.adapters.swic import enrich_with_detail, parse_cap_detail
+
+    detail = parse_cap_detail(CAP_DETAIL_FIXTURE)  # severity == "Moderate"
+    unverified = SwicAdapter().parse(
+        _collection(_feature("f1", "xx-test-en/a.xml", s=0)), NOW
+    )[0]
+    assert unverified.severity is None
+    assert "severity" in unverified.unmapped_fields
+    assert "severity" not in unverified.unavailable_fields
+
+    enriched = enrich_with_detail(unverified, detail)
+    assert enriched.severity == "Moderate"
+    assert "severity" not in enriched.unmapped_fields
+    assert "severity" not in enriched.unavailable_fields
 
 
 def test_enrich_with_detail_never_mutates_the_original_alert():

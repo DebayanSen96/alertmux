@@ -319,6 +319,14 @@ def enrich_with_detail(alert: NormalisedAlert, detail: CapDetail) -> NormalisedA
     matching D9's "shared state must not be mutated by one caller for
     another" discipline now that a cached response could be enriched
     more than once.
+
+    Merging only ever fills a field in, never empties one, so a field
+    that stays None keeps whichever of `unavailable_fields` /
+    `unmapped_fields` it was already in -- an unverified list-view code
+    (unmapped) does not turn into "the source said nothing" just
+    because the CAP file happened not to restate it either, and a
+    field the list view structurally never carries does not turn into
+    "declined to map" just because this function ran.
     """
     updated = alert.model_copy(
         update={
@@ -335,13 +343,17 @@ def enrich_with_detail(alert: NormalisedAlert, detail: CapDetail) -> NormalisedA
             "certainty": detail.certainty or alert.certainty,
         }
     )
-    unavailable = sorted(
+    still_none = {
         name
         for name in NormalisedAlert.model_fields
-        if name not in {"id", "event", "provenance", "unavailable_fields"}
+        if name not in {"id", "event", "provenance", "unavailable_fields", "unmapped_fields"}
         and getattr(updated, name) is None
+    }
+    unavailable = sorted(still_none & set(alert.unavailable_fields))
+    unmapped = sorted(still_none & set(alert.unmapped_fields))
+    return updated.model_copy(
+        update={"unavailable_fields": unavailable, "unmapped_fields": unmapped}
     )
-    return updated.model_copy(update={"unavailable_fields": unavailable})
 
 
 class SwicAdapter:
@@ -451,8 +463,11 @@ class SwicAdapter:
                     against the int table misses silently and leaves the named
                     field null, so coerce digit strings to int before lookup.
                     Genuinely unmappable values (None, non-digit strings, codes
-                    outside the verified table) still fall through to None and
-                    land in unavailable_fields exactly as before.
+                    outside the verified table) still fall through to None.
+                    Whether that None then lands in unmapped_fields (a code
+                    was supplied but refused) or unavailable_fields (nothing
+                    was supplied at all) is decided below, from whether the
+                    raw props value was present -- not from this function.
                     """
                     raw = props.get(key)
                     if isinstance(raw, str) and raw.isascii() and raw.isdigit():
@@ -479,11 +494,26 @@ class SwicAdapter:
                     "geometry": feature.get("geometry"),
                 }
 
+                # A named field that came back None is unmapped -- not
+                # unavailable -- exactly when its raw s/u/c code was
+                # supplied and refused (an unverified code, D1). When the
+                # source sent nothing at all for that code, it is
+                # unavailable like any other missing field.
+                unmapped = sorted(
+                    name
+                    for name, key in (
+                        ("severity", "s"), ("urgency", "u"), ("certainty", "c")
+                    )
+                    if fields[name] is None and props.get(key) is not None
+                )
+
                 # Unioned with every optional field that came back None, so
                 # the list is exhaustive by construction rather than by
-                # remembering to append.
+                # remembering to append. unmapped fields are carved out so
+                # a field never lands in both lists.
                 unavailable = sorted(
-                    set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None}
+                    (set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None})
+                    - set(unmapped)
                 )
 
                 alerts.append(
@@ -498,6 +528,7 @@ class SwicAdapter:
                             raw_reference=capurl,
                         ),
                         unavailable_fields=unavailable,
+                        unmapped_fields=unmapped,
                         **fields,
                     )
                 )
