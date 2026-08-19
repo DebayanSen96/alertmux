@@ -47,6 +47,15 @@ class AlertsResponse(BaseModel):
     # Populated only when a requested ?authority= matched nothing, so a
     # typo is distinguishable from a genuinely quiet day.
     available_authorities: list[str] | None = None
+    # True exactly when `available_authorities` was built from a partial
+    # fetch (D7, extended). The list is only ever assembled from alerts
+    # this fetch actually returned -- a source that was down during that
+    # fetch contributes nothing to it, so a perfectly valid authority can
+    # be missing from the list for a reason that has nothing to do with
+    # whether the authority exists. This flag makes that distinction
+    # explicit instead of leaving the caller to notice `partial` was also
+    # true. Always `None` when `available_authorities` itself is `None`.
+    available_authorities_partial: bool | None = None
     disclaimer: str = DISCLAIMER
     # Reports cross-source duplication (e.g. SWIC's us-noaa slice vs a
     # direct NWS fetch). Never changes `alerts` -- see dedupe.py and
