@@ -191,14 +191,32 @@ def test_events_not_a_list_raises():
 def test_unavailable_fields_is_exhaustive_in_both_directions():
     optional = [
         name for name in NormalisedAlert.model_fields
-        if name not in {"id", "event", "provenance", "unavailable_fields"}
+        if name not in {"id", "event", "provenance", "unavailable_fields", "unmapped_fields"}
     ]
     for alert in EonetAdapter().parse(FIXTURE, NOW):
         for name in alert.unavailable_fields:
             assert getattr(alert, name) is None, name
+        for name in alert.unmapped_fields:
+            assert getattr(alert, name) is None, name
         for name in optional:
             if getattr(alert, name) is None:
-                assert name in alert.unavailable_fields, name
+                assert (
+                    name in alert.unavailable_fields or name in alert.unmapped_fields
+                ), name
+
+
+def test_eonet_never_supplies_unmapped_fields():
+    """EONET has no severity/urgency/certainty concepts at all -- those
+    gaps are structural, never a declined mapping, so unmapped_fields
+    must always be empty here."""
+    for alert in EonetAdapter().parse(FIXTURE, NOW):
+        assert alert.unmapped_fields == []
+
+
+def test_unavailable_and_unmapped_never_overlap():
+    for alert in EonetAdapter().parse(FIXTURE, NOW):
+        overlap = set(alert.unavailable_fields) & set(alert.unmapped_fields)
+        assert overlap == set(), overlap
 
 
 def test_provenance_authority_is_nasa_eonet():

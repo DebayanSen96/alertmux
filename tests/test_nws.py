@@ -194,14 +194,31 @@ def test_non_featurecollection_200_raises_rather_than_reporting_zero_alerts():
 def test_unavailable_fields_is_exhaustive_in_both_directions():
     optional = [
         name for name in NormalisedAlert.model_fields
-        if name not in {"id", "event", "provenance", "unavailable_fields"}
+        if name not in {"id", "event", "provenance", "unavailable_fields", "unmapped_fields"}
     ]
     for alert in NwsAdapter().parse(FIXTURE, NOW):
         for name in alert.unavailable_fields:
             assert getattr(alert, name) is None, name
+        for name in alert.unmapped_fields:
+            assert getattr(alert, name) is None, name
         for name in optional:
             if getattr(alert, name) is None:
-                assert name in alert.unavailable_fields, name
+                assert (
+                    name in alert.unavailable_fields or name in alert.unmapped_fields
+                ), name
+
+
+def test_nws_never_supplies_unmapped_fields():
+    """NWS states named CAP values directly -- there is no integer code
+    to decline, so unmapped_fields must always be empty here."""
+    for alert in NwsAdapter().parse(FIXTURE, NOW):
+        assert alert.unmapped_fields == []
+
+
+def test_unavailable_and_unmapped_never_overlap():
+    for alert in NwsAdapter().parse(FIXTURE, NOW):
+        overlap = set(alert.unavailable_fields) & set(alert.unmapped_fields)
+        assert overlap == set(), overlap
 
 
 def test_empty_feature_list_is_zero_alerts_not_an_error():
