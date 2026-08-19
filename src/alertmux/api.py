@@ -92,6 +92,13 @@ def alerts(
     Note: `sources[].alert_count` describes the whole fetch, not the
     filtered list. With `?authority=` applied it will not equal
     `len(alerts)` — source health is about the fetch, not the filter.
+
+    An unknown `?authority=` reports `available_authorities` (D7) and, in
+    the same response, `available_authorities_partial`: `true` means that
+    list was built from a partial fetch, so an authority missing from it
+    may simply have a source that was down, not one that does not exist.
+    Check `available_authorities_partial` before reading a short list as
+    proof an authority is invalid.
     """
     response = _collect_cached(adapters)
     if authority:
@@ -105,6 +112,14 @@ def alerts(
             response.available_authorities = sorted(
                 {a.provenance.authority for a in response.alerts}
             )
+            # D7, extended: the list above is built only from alerts this
+            # fetch actually returned. If the fetch was partial (a source
+            # was down, truncated, or quarantined records), a perfectly
+            # valid authority whose source failed is silently missing
+            # from it -- indistinguishable, without this flag, from an
+            # authority that does not exist. Never let a short list read
+            # as authoritative.
+            response.available_authorities_partial = response.partial
         response.alerts = matching
     return response
 

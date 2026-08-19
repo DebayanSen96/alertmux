@@ -189,6 +189,45 @@ def test_known_authority_does_not_list_available_authorities():
     assert body["available_authorities"] is None
 
 
+def test_unknown_authority_on_a_complete_fetch_is_not_flagged_partial():
+    """Issue #9: a complete fetch's available_authorities list can be
+    trusted -- the flag must say so."""
+    client = _client([FakeAdapter("wmo-swic", alerts=[_alert()])])
+    body = client.get("/alerts?authority=typo-does-not-exist").json()
+    assert body["partial"] is False
+    assert body["available_authorities_partial"] is False
+
+
+def test_unknown_authority_on_a_partial_fetch_is_flagged_partial():
+    """Issue #9: a source being down must not let a short authority list
+    read as complete. ng-nimet is a real, known-good authority here --
+    it is simply absent from this fetch because usgs (a different
+    source) failed. The response must not imply ng-nimet-like slugs
+    from the down source do not exist."""
+    client = _client([
+        FakeAdapter("wmo-swic", alerts=[_alert()]),
+        FakeAdapter("usgs", ok=False, error="timeout"),
+    ])
+    body = client.get("/alerts?authority=typo-does-not-exist").json()
+    assert body["partial"] is True
+    assert body["available_authorities_partial"] is True
+    # The authority list is still whatever the fetch actually saw --
+    # never invented -- just explicitly marked as possibly short.
+    assert body["available_authorities"] == ["ng-nimet"]
+
+
+def test_known_authority_does_not_set_available_authorities_partial():
+    """The flag only exists alongside available_authorities; when the
+    filter matched, there is nothing for it to qualify."""
+    client = _client([
+        FakeAdapter("wmo-swic", alerts=[_alert()]),
+        FakeAdapter("usgs", ok=False, error="timeout"),
+    ])
+    body = client.get("/alerts?authority=ng-nimet").json()
+    assert body["available_authorities"] is None
+    assert body["available_authorities_partial"] is None
+
+
 def test_both_endpoints_state_the_relay_disclaimer_in_the_body():
     client = _client([FakeAdapter("wmo-swic", alerts=[_alert()])])
     assert "not a substitute" in client.get("/alerts").json()["disclaimer"].lower()
