@@ -1,10 +1,13 @@
 """USGS earthquake feed adapter.
 
 USGS publishes observed earthquakes, not forecast warnings, so it has no
-expiry and no CAP severity. Both are recorded as unavailable rather than
-invented. The `alert` field (PAGER level: green/yellow/orange/red) is kept
-as a source-native value only — it is not CAP severity and must not be
-mapped to one.
+expiry -- recorded as unavailable, since the feed never supplies it at
+all. `severity` is different: most features carry no PAGER `alert`
+level (too small to score), but when they do, it is kept as a
+source-native value only — it is not CAP severity and must not be
+mapped to one. `severity` therefore lands in `unavailable_fields` when
+`alert` is absent and `unmapped_fields` when it is present but declined,
+exactly like `gdacs:alertlevel` (see `gdacs.py`).
 
 The feed also carries non-earthquake events (`quarry blast`, `explosion`,
 `ice quake`, `sonic boom`, `mining explosion`), so `type` is never
@@ -120,8 +123,16 @@ class UsgsAdapter:
                     "geometry": feature.get("geometry"),
                 }
 
+                # The PAGER level is only sometimes present -- most feature
+                # records carry no `alert` at all (the majority of events
+                # are too small for PAGER to score). When it IS present,
+                # severity is deliberately not derived from it (not CAP
+                # severity); that is unmapped, not unavailable.
+                unmapped = ["severity"] if fields["source_severity"] is not None else []
+
                 unavailable = sorted(
-                    set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None}
+                    (set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None})
+                    - set(unmapped)
                 )
 
                 alerts.append(
@@ -136,6 +147,7 @@ class UsgsAdapter:
                             raw_reference=props.get("url"),
                         ),
                         unavailable_fields=unavailable,
+                        unmapped_fields=unmapped,
                         **fields,
                     )
                 )

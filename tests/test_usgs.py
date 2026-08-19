@@ -47,16 +47,24 @@ def test_parse_sets_provenance():
 
 
 def test_null_alert_level_is_recorded_as_unavailable_not_guessed():
+    """No PAGER level at all -- the source said nothing, so severity is
+    unavailable, not unmapped."""
     alert = UsgsAdapter().parse(FIXTURE, NOW)[0]
     assert alert.severity is None
     assert alert.source_severity is None
     assert "severity" in alert.unavailable_fields
+    assert "severity" not in alert.unmapped_fields
 
 
 def test_present_alert_level_is_kept_as_source_severity_only():
+    """A PAGER level IS present -- the source said something, and it is
+    declined on principle (not CAP severity), so severity is unmapped,
+    not unavailable."""
     alert = UsgsAdapter().parse(FIXTURE, NOW)[1]
     assert alert.source_severity == "green"
     assert alert.severity is None
+    assert "severity" in alert.unmapped_fields
+    assert "severity" not in alert.unavailable_fields
 
 
 def test_usgs_never_supplies_expiry():
@@ -191,7 +199,7 @@ def test_description_is_none_not_a_copy_of_the_headline():
 def test_unavailable_fields_is_exhaustive_in_both_directions():
     optional = [
         name for name in NormalisedAlert.model_fields
-        if name not in {"id", "event", "provenance", "unavailable_fields"}
+        if name not in {"id", "event", "provenance", "unavailable_fields", "unmapped_fields"}
     ]
     payloads = [
         FIXTURE,
@@ -199,14 +207,27 @@ def test_unavailable_fields_is_exhaustive_in_both_directions():
         # geometry can also be absent.
         _collection(_feature(place=None, title=None)),
         _collection(dict(_feature(), geometry=None)),
+        _collection(_feature(alert="green")),
     ]
     for payload in payloads:
         for alert in UsgsAdapter().parse(payload, NOW):
             for name in alert.unavailable_fields:
                 assert getattr(alert, name) is None, name
+            for name in alert.unmapped_fields:
+                assert getattr(alert, name) is None, name
             for name in optional:
                 if getattr(alert, name) is None:
-                    assert name in alert.unavailable_fields, name
+                    assert (
+                        name in alert.unavailable_fields or name in alert.unmapped_fields
+                    ), name
+
+
+def test_unavailable_and_unmapped_never_overlap():
+    payloads = [FIXTURE, _collection(_feature(alert="green"))]
+    for payload in payloads:
+        for alert in UsgsAdapter().parse(payload, NOW):
+            overlap = set(alert.unavailable_fields) & set(alert.unmapped_fields)
+            assert overlap == set(), overlap
 
 
 def test_empty_feature_list_is_zero_alerts_not_an_error():
