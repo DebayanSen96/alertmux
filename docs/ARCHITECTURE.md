@@ -59,6 +59,17 @@ alert never expires, or that the source did not say. Naming the gap removes the
 ambiguity. The README states this list is *exhaustive*; that promise is enforced
 mechanically (see below), not by remembering to append.
 
+`unavailable_fields` alone was still ambiguous in a second way: `severity: null`
+could mean "the source said nothing" or "the source said something we refused to
+translate" — `source_severity` had to be inspected field-by-field to tell them
+apart. `unmapped_fields` splits that second case out: a field the source *did*
+supply but that this adapter declined to map (an SWIC code outside the D1 tables,
+GDACS's `alertlevel`, a tsunami bulletin category, the USGS PAGER level) lands
+there instead, never in `unavailable_fields`. A `STRUCTURAL_GAPS` entry always
+means "this feed never supplies the concept at all" and always stays in
+`unavailable_fields` regardless of any particular record — see DECISIONS.md's
+entry on this split for the per-adapter reasoning.
+
 ## adapters/base.py — adapters never raise, and neither does one bad record
 
 A source being down is **data**, not an exception:

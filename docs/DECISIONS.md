@@ -18,7 +18,9 @@ however convenient.
 1. **It relays, it never issues.** Alert text passes through verbatim. The system
    never authors, rewords, or infers hazard content.
 2. **Nothing is ever inferred.** A field a source does not supply is `None` and named
-   in `unavailable_fields`. Never defaulted, never guessed.
+   in `unavailable_fields`; a field the source did supply but that alertmux declines
+   to translate is `None` and named in `unmapped_fields` instead (see D18). Never
+   defaulted, never guessed, and never conflated with each other.
 3. **Only verified severity codes are mapped.** Codes never observed in real CAP data
    stay untranslated.
 4. **Silent partial success is a bug.** Any incomplete answer is labelled.
@@ -46,8 +48,9 @@ key and a test.
 
 **Cost of being wrong.** Mapping a code incorrectly means a consumer acts on a
 severity the authority never stated — an alert treated as minor when it is extreme,
-or an immediate warning read as past. An unmapped code costs a null and a name in
-`unavailable_fields`, which is recoverable. The asymmetry is the whole argument.
+or an immediate warning read as past. An unverified code costs a null and a name in
+`unmapped_fields` (D18) — the code was supplied and refused, not absent — which is
+recoverable. The asymmetry is the whole argument.
 
 ## D2 — Alert ids derive from `capurl`, not the server's feature id
 
@@ -543,8 +546,11 @@ tsunami.gov's NTWC/PTWC Atom feeds embed in each bulletin's `<summary>` and maps
 it, through an explicit table (`CATEGORY_TO_EVENT`), to the full verbatim level
 name — `"Tsunami Information Statement"`, `"Tsunami Watch"`, `"Tsunami
 Advisory"`, `"Tsunami Warning"` — and puts that in `event`. `severity` stays
-`None` and is always in `unavailable_fields`; the raw category goes in
-`source_severity` only.
+`None`; the raw category goes in `source_severity` only. Every entry that
+reaches `NormalisedAlert` at all carries a verified `Category:` (an entry
+without one is quarantined first, D3), so `severity` lands in
+`unmapped_fields`, never `unavailable_fields` — the source stated a level,
+and alertmux is the one declining to translate it (see D18).
 
 **Why.** tsunami.gov's own hierarchy is Information Statement < Watch <
 Advisory < Warning. An Information Statement is the routine, most common
@@ -582,6 +588,63 @@ source matters most. A real, verified CAP file for a Watch/Advisory/Warning
 bulletin — none available at build time — would be the evidence needed to
 add a severity mapping, and even then only for the levels it actually
 covers.
+
+---
+
+## D18 — `unmapped_fields` is distinct from `unavailable_fields`
+
+**Decision.** `NormalisedAlert` carries two lists, and a field that comes
+back `None` is named in exactly one, never both:
+
+- `unavailable_fields` — the source supplied nothing for this field.
+- `unmapped_fields` — the source supplied a value, but alertmux declined to
+  translate it, either because the mapping is unverified (an SWIC `s`/`u`/`c`
+  code outside the D1 tables) or because it is deliberately never attempted
+  (GDACS's `alertlevel`, a tsunami bulletin category, the USGS PAGER
+  `alert` level — see D17 and the `gdacs.py`/`usgs.py` module docstrings).
+  The raw value is preserved in `source_severity`/`source_urgency`/
+  `source_certainty` either way. A `STRUCTURAL_GAPS` entry — a concept the
+  feed never carries on any record, e.g. NWS's `instruction` or EONET's
+  `severity` — always stays in `unavailable_fields` regardless of the
+  particular record; structural absence is not a refusal to map.
+
+**Why.** Before this, `unavailable_fields` conflated two different claims.
+Verified against live code prior to this decision:
+
+```
+s=0  (SWIC supplied a code, refused to map it):
+     severity=None  source_severity='0'   'severity' in unavailable_fields: True
+
+no s (SWIC supplied nothing at all):
+     severity=None  source_severity=None  'severity' in unavailable_fields: True
+```
+
+Both cases produced the identical signal. A consumer could only tell them
+apart by inspecting every `source_*` field by hand, which defeats the
+purpose of a single list a caller can trust without reading the schema. In a
+hazard system the two claims are materially different: "the authority did
+not say" versus "the authority said something specific and alertmux is
+refusing to guess at its meaning." GDACS is the sharpest example — nearly
+every live item carries `gdacs:alertlevel` (Green/Orange/Red), so `severity`
+was landing in `unavailable_fields` on almost every GDACS alert, reading as
+"GDACS never states this" when GDACS was in fact stating something on
+nearly every record and being overruled on principle.
+
+**Cost of being wrong.** The conflation itself was low-severity — no field
+value was ever fabricated, so principle 2 was never actually violated — but
+it made the API harder to trust than it should have been: a consumer
+auditing `unavailable_fields` for gaps worth chasing down (e.g. "should I
+fetch CAP detail for this alert?") could not distinguish "nothing to fetch,
+the source never had it" from "something was stated, and there might be a
+CAP file with a more specific answer." Splitting the two makes that
+consumer's decision mechanical instead of requiring them to read every
+adapter's source to know which case they are in.
+
+**What would justify changing it back.** Nothing found so far. The two
+questions ("did the source say anything" vs "did we choose to translate
+what it said") are genuinely different and both worth asking; collapsing
+them back into one list would restore the original ambiguity for no
+benefit.
 
 ---
 

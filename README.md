@@ -153,7 +153,8 @@ A real warning from the Nigerian Meteorological Agency, as alertmux returns it:
     "headline",
     "instruction",
     "onset"
-  ]
+  ],
+  "unmapped_fields": []
 }
 ```
 
@@ -163,8 +164,25 @@ instruction, onset, expires or polygon — the SWIC list view carries none of
 them; they live only in the raw CAP file at
 `https://severeweather.wmo.int/v2/cap-alerts/<raw_reference>`. Every one of
 those absences is named in `unavailable_fields`, which is exhaustive: if a
-field is `null`, its name is in that list. `GET /alerts/{alert_id}/detail`
-fetches that CAP file and fills every one of those gaps it can.
+field is `null`, its name is in `unavailable_fields` or `unmapped_fields`
+(empty here — see below). `GET /alerts/{alert_id}/detail` fetches that CAP
+file and fills every one of those gaps it can.
+
+`unavailable_fields` and `unmapped_fields` answer two different questions,
+and every `null` field is in exactly one, never both:
+
+- `unavailable_fields` — the source supplied nothing for this field.
+- `unmapped_fields` — the source supplied a value, but alertmux declined to
+  translate it, either because the mapping is unverified (an SWIC `s`/`u`/`c`
+  code outside the confirmed tables) or because it is deliberately never
+  attempted (GDACS's `alertlevel`, a tsunami bulletin category, the USGS
+  PAGER level — none of which are CAP severity). The raw value is still in
+  `source_severity`/`source_urgency`/`source_certainty` either way.
+
+A GDACS alert with `source_severity: "Green"` and `severity: null` has
+`"severity"` in `unmapped_fields`, not `unavailable_fields` — the authority
+said something specific, and alertmux is refusing to translate it, which is a
+different claim from "the authority said nothing."
 
 The `id` is derived from `raw_reference`, not from the GeoServer feature id —
 GeoServer's synthetic fids embed the *request* timestamp and change on every
@@ -173,12 +191,14 @@ fetch, so they cannot be used as a deduplication key.
 ## Design rules
 
 - **Nothing is inferred.** A field a source does not supply is `null`, and its
-  name appears in `unavailable_fields`.
+  name appears in `unavailable_fields` — or, if the source did supply a value
+  that alertmux declined to translate, `unmapped_fields`. Never both.
 - **Only verified severity codes are translated.** SWIC's `s`/`u`/`c` are
   integers. The mapping was confirmed against raw CAP files, so `severity`,
   `urgency` and `certainty` carry proper CAP names — but any code that was
-  never observed stays `null` rather than being guessed. The raw value is
-  always preserved in `source_severity` / `source_urgency` /
+  never observed stays `null` rather than being guessed, and lands in
+  `unmapped_fields` (the code was there, it just wasn't trusted). The raw
+  value is always preserved in `source_severity` / `source_urgency` /
   `source_certainty`, even when a mapping exists.
 - **A malformed record is quarantined, never defaulted.** A feature missing
   an identity, an event type, or a timezone on its timestamp is skipped and
@@ -238,10 +258,14 @@ on third-party uptime. A new adapter's live test belongs in
    source's own raw CAP output. Anything unconfirmed leaves the named field
    `None` and keeps the raw value in `source_*`. A guessed severity is either
    a missed warning or a false alarm — do not complete a partial table.
-2. **Record every unsupplied field in `unavailable_fields`.** The list is
-   exhaustive by contract: every `null` optional field must be named. Derive
-   it from the values you actually built, as `swic.py` and `usgs.py` do,
-   rather than appending entries by hand.
+2. **Record every `null` optional field in exactly one of `unavailable_fields`
+   / `unmapped_fields`.** `unavailable_fields` means the source supplied
+   nothing; `unmapped_fields` means it supplied a value your adapter declined
+   to translate (an unverified code, or a value deliberately never mapped,
+   like GDACS's `alertlevel`). Both lists are exhaustive by contract and must
+   never overlap. Derive them from the values you actually built and from
+   whether the source's raw field was present, as `swic.py` and `gdacs.py`
+   do, rather than appending entries by hand.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and commit style.
 
