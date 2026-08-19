@@ -29,12 +29,15 @@ def test_parse_returns_the_entry_in_each_fixture():
 def test_information_statement_never_produces_a_non_null_severity():
     """The regression guard that matters: an Information Statement is
     NOT a warning. Whatever else changes about this adapter, this must
-    never start returning a severity for one."""
+    never start returning a severity for one. The category WAS stated
+    (source_severity == "Information"), so the refusal to translate it
+    belongs in unmapped_fields, not unavailable_fields."""
     for alerts in (_parse_ntwc(), _parse_ptwc()):
         for alert in alerts:
             assert alert.event == "Tsunami Information Statement"
             assert alert.severity is None
-            assert "severity" in alert.unavailable_fields
+            assert "severity" in alert.unmapped_fields
+            assert "severity" not in alert.unavailable_fields
             assert alert.source_severity == "Information"
 
 
@@ -58,6 +61,8 @@ def test_watch_advisory_warning_categories_map_through_the_explicit_table():
         assert alert.event == expected_event
         assert alert.severity is None
         assert alert.source_severity == category
+        assert "severity" in alert.unmapped_fields
+        assert "severity" not in alert.unavailable_fields
 
 
 def test_unmapped_category_is_quarantined_not_defaulted():
@@ -175,21 +180,35 @@ def test_urgency_certainty_expires_onset_are_always_structurally_unavailable():
         assert alert.onset is None
         assert alert.source_urgency is None
         assert alert.source_certainty is None
-        for name in ("urgency", "certainty", "expires", "onset", "instruction", "severity"):
+        for name in ("urgency", "certainty", "expires", "onset", "instruction"):
             assert name in alert.unavailable_fields
+        # severity is different -- the category IS supplied, so it is
+        # declined (unmapped), not structurally absent.
+        assert "severity" in alert.unmapped_fields
+        assert "severity" not in alert.unavailable_fields
 
 
 def test_unavailable_fields_is_exhaustive_in_both_directions():
     optional = [
         name for name in NormalisedAlert.model_fields
-        if name not in {"id", "event", "provenance", "unavailable_fields"}
+        if name not in {"id", "event", "provenance", "unavailable_fields", "unmapped_fields"}
     ]
     for alert in _parse_ntwc() + _parse_ptwc():
         for name in alert.unavailable_fields:
             assert getattr(alert, name) is None, name
+        for name in alert.unmapped_fields:
+            assert getattr(alert, name) is None, name
         for name in optional:
             if getattr(alert, name) is None:
-                assert name in alert.unavailable_fields, name
+                assert (
+                    name in alert.unavailable_fields or name in alert.unmapped_fields
+                ), name
+
+
+def test_unavailable_and_unmapped_never_overlap():
+    for alert in _parse_ntwc() + _parse_ptwc():
+        overlap = set(alert.unavailable_fields) & set(alert.unmapped_fields)
+        assert overlap == set(), overlap
 
 
 def test_non_atom_200_raises_rather_than_reporting_zero_tsunamis():

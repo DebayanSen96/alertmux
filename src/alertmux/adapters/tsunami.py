@@ -30,9 +30,13 @@ live Watch/Advisory/Warning to verify against. Consequently:
 
 1. **The bulletin category is never mapped to CAP ``severity``.** Same
    discipline as ``gdacs:alertlevel`` (see ``gdacs.py`` and
-   DECISIONS.md): ``severity`` is always ``None`` and always in
-   ``unavailable_fields``. The raw category goes in ``source_severity``
-   only.
+   DECISIONS.md): ``severity`` is always ``None``. The raw category
+   goes in ``source_severity`` only. Every entry that reaches
+   ``NormalisedAlert`` at all has a required, verified ``Category:``
+   (an entry without one is quarantined before it gets this far, see
+   point 3 below), so ``severity`` always lands in ``unmapped_fields``
+   here -- never ``unavailable_fields``, which would claim the source
+   said nothing.
 2. **``event`` carries the level verbatim, mapped through an explicit
    table** (``CATEGORY_TO_EVENT`` below) from the per-entry ``Category:``
    field embedded in the entry's ``<summary>`` — the same
@@ -73,9 +77,9 @@ that ever changes.
 Structurally never supplied by this feed: ``urgency``, ``certainty``,
 ``expires``, ``instruction``, and a distinct ``onset`` (the only
 timestamp is the bulletin's issue/update time, used as ``sent``).
-``severity`` is never supplied either, in the sense that means: it is
-never derived, on principle, even though the source states a category —
-see point 1 above.
+``severity`` is different: the source does state a category, and it is
+never translated to CAP severity on principle (see point 1 above), so
+it lands in ``unmapped_fields`` rather than being structurally absent.
 """
 
 from __future__ import annotations
@@ -254,14 +258,17 @@ class TsunamiAdapter:
     )
 
     # This feed structurally never supplies urgency, certainty, expires
-    # or instruction on any entry -- and severity is deliberately never
-    # derived from the bulletin category (see module docstring) even
-    # though the source states one. onset is likewise never distinct
+    # or instruction on any entry. onset is likewise never distinct
     # from the bulletin's issue time (used as `sent`); there is no
-    # separate onset concept on this feed. A class attribute so
-    # /sources can report it without running a fetch.
+    # separate onset concept on this feed. severity is deliberately
+    # excluded from this tuple: every entry that parses at all carries a
+    # verified Category:, which is deliberately never derived to CAP
+    # severity (see module docstring) -- that is "declined", i.e.
+    # unmapped_fields, not structurally absent. A class attribute so
+    # /sources can report the genuinely structural gaps without running
+    # a fetch.
     STRUCTURAL_GAPS: tuple[str, ...] = (
-        "severity", "urgency", "certainty", "expires", "onset", "instruction",
+        "urgency", "certainty", "expires", "onset", "instruction",
     )
 
     def __init__(self, client: httpx.Client | None = None, timeout: float = 30.0):
@@ -328,8 +335,14 @@ class TsunamiAdapter:
                     "geometry": _geometry(entry),
                 }
 
+                # category is required to reach this point (see above),
+                # so source_severity is always set: severity is always
+                # unmapped here, never unavailable.
+                unmapped = ["severity"] if fields["source_severity"] is not None else []
+
                 unavailable = sorted(
-                    set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None}
+                    (set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None})
+                    - set(unmapped)
                 )
 
                 alerts.append(
@@ -344,6 +357,7 @@ class TsunamiAdapter:
                             raw_reference=_raw_reference(entry),
                         ),
                         unavailable_fields=unavailable,
+                        unmapped_fields=unmapped,
                         **fields,
                     )
                 )
