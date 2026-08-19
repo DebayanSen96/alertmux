@@ -17,8 +17,12 @@ the codebase:
    Mapping it onto CAP's Minor/Moderate/Severe/Extreme would assert a
    severity GDACS never gave — the exact failure alertmux exists to
    prevent (see the four principles in ``DECISIONS.md``). It stays in
-   ``source_severity`` only; ``severity`` is always ``None`` and always
-   in ``unavailable_fields``.
+   ``source_severity`` only; ``severity`` is always ``None``. Because
+   ``alertlevel`` is virtually always present on a live item, this
+   almost always lands ``severity`` in ``unmapped_fields`` — the source
+   *did* state something, it was declined on principle — never
+   ``unavailable_fields``, which is reserved for the (rare, but
+   possible) item that carries no ``alertlevel`` at all.
 2. **``event`` comes from ``gdacs:eventtype`` through an explicit,
    deliberately incomplete table** (``EVENT_TYPES`` below), same
    discipline as SWIC's severity/urgency/certainty codes (DECISIONS.md
@@ -186,12 +190,16 @@ class GdacsAdapter:
     source_id = "gdacs"
     URL = "https://www.gdacs.org/xml/rss.xml"
 
-    # GDACS structurally never supplies urgency, certainty or expires,
-    # and severity is deliberately never derived from alertlevel (see
-    # module docstring) -- all four are always unavailable regardless
-    # of what a particular record carries. A class attribute so
-    # /sources can report it without running a fetch.
-    STRUCTURAL_GAPS: tuple[str, ...] = ("severity", "urgency", "certainty", "expires", "instruction")
+    # GDACS structurally never supplies urgency, certainty or expires --
+    # not even as an unmapped source-native value -- so these three are
+    # always unavailable regardless of what a particular record carries.
+    # severity is deliberately excluded from this tuple: GDACS almost
+    # always DOES supply gdacs:alertlevel, so severity is usually
+    # unmapped (declined on principle), not structurally absent -- see
+    # the module docstring and parse() for how the two are told apart
+    # per record. A class attribute so /sources can report the
+    # genuinely structural gaps without running a fetch.
+    STRUCTURAL_GAPS: tuple[str, ...] = ("urgency", "certainty", "expires", "instruction")
 
     def __init__(self, client: httpx.Client | None = None, timeout: float = 30.0):
         self._client = client
@@ -257,10 +265,20 @@ class GdacsAdapter:
                     "geometry": _geometry(item),
                 }
 
+                # severity is None here on principle, never because
+                # alertlevel was missing (see module docstring). Whether
+                # that None is "declined" (unmapped) or "genuinely
+                # absent" (unavailable) depends on whether this item
+                # actually carried a gdacs:alertlevel.
+                unmapped = ["severity"] if fields["source_severity"] is not None else []
+
                 # Unioned with whatever else came back None on this record,
                 # same derived-not-appended construction as nws.py/swic.py.
+                # unmapped fields are carved out so a field never lands in
+                # both lists.
                 unavailable = sorted(
-                    set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None}
+                    (set(self.STRUCTURAL_GAPS) | {k for k, v in fields.items() if v is None})
+                    - set(unmapped)
                 )
 
                 # "Raw reference" is the CAP file GDACS generated for this
@@ -281,6 +299,7 @@ class GdacsAdapter:
                             raw_reference=raw_reference,
                         ),
                         unavailable_fields=unavailable,
+                        unmapped_fields=unmapped,
                         **fields,
                     )
                 )

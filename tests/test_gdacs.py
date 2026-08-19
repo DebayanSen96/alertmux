@@ -29,13 +29,33 @@ def test_alertlevel_is_never_mapped_to_cap_severity():
     impact score, not a CAP severity judgement - GDACS never states how
     severe the hazard itself is. Mapping it onto Minor/Moderate/Severe/
     Extreme would assert a severity the source never gave. This is the
-    central discipline this adapter exists to test."""
+    central discipline this adapter exists to test.
+
+    Every fixture item carries an alertlevel, so the source DID say
+    something -- the refusal to translate it belongs in unmapped_fields,
+    never unavailable_fields (which means the source said nothing).
+    """
     alerts = GdacsAdapter().parse(FIXTURE, NOW)
     assert len(alerts) > 0
     for alert in alerts:
         assert alert.severity is None
-        assert "severity" in alert.unavailable_fields
         assert alert.source_severity in {"Green", "Orange", "Red"}
+        assert "severity" in alert.unmapped_fields
+        assert "severity" not in alert.unavailable_fields
+
+
+def test_severity_is_unavailable_not_unmapped_when_alertlevel_is_absent():
+    """The rare item with no gdacs:alertlevel at all is a genuinely
+    different claim from one that states Green/Orange/Red and is
+    declined -- it belongs in unavailable_fields, not unmapped_fields."""
+    tree_bytes = FIXTURE.replace(
+        b"<gdacs:alertlevel>Green</gdacs:alertlevel>", b""
+    )
+    alerts = GdacsAdapter().parse(tree_bytes, NOW)
+    without_level = next(a for a in alerts if a.source_severity is None)
+    assert without_level.severity is None
+    assert "severity" in without_level.unavailable_fields
+    assert "severity" not in without_level.unmapped_fields
 
 
 def test_event_comes_from_eventtype_via_explicit_table():
@@ -99,14 +119,24 @@ def test_urgency_certainty_expires_are_always_structurally_unavailable():
 def test_unavailable_fields_is_exhaustive_in_both_directions():
     optional = [
         name for name in NormalisedAlert.model_fields
-        if name not in {"id", "event", "provenance", "unavailable_fields"}
+        if name not in {"id", "event", "provenance", "unavailable_fields", "unmapped_fields"}
     ]
     for alert in GdacsAdapter().parse(FIXTURE, NOW):
         for name in alert.unavailable_fields:
             assert getattr(alert, name) is None, name
+        for name in alert.unmapped_fields:
+            assert getattr(alert, name) is None, name
         for name in optional:
             if getattr(alert, name) is None:
-                assert name in alert.unavailable_fields, name
+                assert (
+                    name in alert.unavailable_fields or name in alert.unmapped_fields
+                ), name
+
+
+def test_unavailable_and_unmapped_never_overlap():
+    for alert in GdacsAdapter().parse(FIXTURE, NOW):
+        overlap = set(alert.unavailable_fields) & set(alert.unmapped_fields)
+        assert overlap == set(), overlap
 
 
 def test_timestamps_are_parsed_as_rfc822_and_converted_to_utc():
