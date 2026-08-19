@@ -92,6 +92,27 @@ def test_list_alerts_returns_alerts_partial_and_source_statuses(monkeypatch):
     assert body["sources"][0]["source_id"] == "wmo-swic"
 
 
+def test_list_alerts_surfaces_unmapped_fields(monkeypatch):
+    """An MCP consumer is an LLM that paraphrases the result -- if a
+    declined-but-supplied value collapses into the same list as a
+    genuinely missing one, the model has no way to state the
+    distinction (DECISIONS.md D14's reasoning, extended to this field).
+    """
+    from alertmux import mcp_server
+
+    unmapped = _alert(severity=None).model_copy(
+        update={"unavailable_fields": [], "unmapped_fields": ["severity"]}
+    )
+    _patch_adapters(
+        monkeypatch, mcp_server, [FakeAdapter("wmo-swic", alerts=[unmapped])]
+    )
+    server = mcp_server.build_server()
+    body = _call(server, "list_alerts")
+
+    assert body["alerts"][0]["unmapped_fields"] == ["severity"]
+    assert "severity" not in body["alerts"][0]["unavailable_fields"]
+
+
 def test_list_alerts_filters_by_authority(monkeypatch):
     from alertmux import mcp_server
 

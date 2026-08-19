@@ -73,6 +73,19 @@ def test_alerts_never_reports_a_severity_it_was_not_given():
     assert alert["source_severity"] == "3"
 
 
+def test_alerts_surfaces_unmapped_fields_distinct_from_unavailable():
+    """unmapped_fields (a value was supplied and declined) must reach
+    the /alerts JSON body just like unavailable_fields (nothing was
+    supplied), and the two must never overlap for the same alert."""
+    unmapped = _alert().model_copy(
+        update={"unavailable_fields": [], "unmapped_fields": ["severity"]}
+    )
+    client = _client([FakeAdapter("wmo-swic", alerts=[unmapped])])
+    alert = client.get("/alerts").json()["alerts"][0]
+    assert alert["unmapped_fields"] == ["severity"]
+    assert "severity" not in alert["unavailable_fields"]
+
+
 def _dupe_alert(alert_id: str, source_id: str) -> NormalisedAlert:
     return NormalisedAlert(
         id=alert_id,
@@ -351,6 +364,27 @@ def test_alert_detail_cap_severity_wins_over_list_view_code():
     body = client.get(f"/alerts/{alert.id}/detail").json()
     assert body["severity"] == "Extreme"
     assert body["source_severity"] == "3"
+
+
+def test_alert_detail_clears_severity_from_unmapped_fields_not_unavailable():
+    """An unverified list-view code (unmapped_fields) is resolved by the
+    signed CAP file exactly like a structurally absent field
+    (unavailable_fields) -- both routes through the same /detail
+    endpoint, and unmapped_fields is a JSON field alongside
+    unavailable_fields on the response body."""
+    alert = _swic_alert()
+    alert = alert.model_copy(
+        update={
+            "severity": None,
+            "source_severity": "0",
+            "unmapped_fields": ["severity"],
+        }
+    )
+    client = _client([FakeSwicAdapter("wmo-swic", alerts=[alert], detail=_detail())])
+    body = client.get(f"/alerts/{alert.id}/detail").json()
+    assert body["severity"] == "Extreme"
+    assert "severity" not in body["unmapped_fields"]
+    assert "severity" not in body["unavailable_fields"]
 
 
 def test_alert_detail_unknown_id_is_404():
